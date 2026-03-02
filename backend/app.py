@@ -162,8 +162,10 @@ def extract_memo_from_file(file_path):
             "「纸上得来终觉浅，绝知此事要躬行。」"
         ]
         
-        import random
-        quote = random.choice(wisdom_quotes)
+        # Use date-based index so the same quote shows all day (no jitter on poll)
+        today = datetime.now().strftime("%Y%m%d")
+        quote_index = int(today) % len(wisdom_quotes)
+        quote = wisdom_quotes[quote_index]
         
         # 组合内容
         result = []
