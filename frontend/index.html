@@ -1121,7 +1121,7 @@
                 controlTitle: 'Star 状态',
                 btnIdle: '待命', btnWork: '工作', btnSync: '同步', btnError: '报警', btnDecor: '装修房间',
                 drawerTitle: '装修房间 · 资产侧边栏', drawerClose: '关闭',
-                authTitle: '请输入装修验证码', authPlaceholder: '输入验证码', authVerify: '验证',
+                authTitle: '请输入装修验证码', authPlaceholder: '输入验证码', authVerify: '验证', authDefaultPassHint: '默认密码：1234（可随时让我帮你改，建议改成强密码）',
                 btnMove: '📦 搬新家', btnHome: '🐚 回老家', btnBroker: '🤝 找中介', btnDIY: '🪚 自己装', btnBrokerGo: '听中介的',
                 brokerHint: '你会给龙虾推荐什么样的房子',
                 brokerPromptPh: '例如：故宫主题、莫奈风格、地牢主题、兵马俑主题……',
@@ -1144,8 +1144,8 @@
                 controlTitle: 'Star Status',
                 btnIdle: 'Idle', btnWork: 'Work', btnSync: 'Sync', btnError: 'Alert', btnDecor: 'Decorate Room',
                 drawerTitle: 'Decorate Room · Asset Sidebar', drawerClose: 'Close',
-                authTitle: 'Enter Decor Passcode', authPlaceholder: 'Enter passcode', authVerify: 'Verify',
-                btnMove: '🏠 New Home', btnHome: '🐚 Go Home', btnBroker: 'Broker', btnDIY: 'DIY', btnBrokerGo: 'Follow Broker',
+                authTitle: 'Enter Decor Passcode', authPlaceholder: 'Enter passcode', authVerify: 'Verify', authDefaultPassHint: 'Default passcode: 1234 (ask me anytime to change it; stronger passcode recommended)',
+                btnMove: '📦 New Home', btnHome: '🐚 Go Home', btnBroker: '🤝 Broker', btnDIY: '🪚 DIY', btnBrokerGo: 'Follow Broker',
                 brokerHint: 'What kind of house would you recommend for Lobster?',
                 brokerPromptPh: 'e.g. Forbidden City theme, Monet style, dungeon theme, Terracotta Warriors theme...',
                 brokerNeedPrompt: 'Please enter broker style prompt first',
@@ -1167,8 +1167,8 @@
                 controlTitle: 'Star ステータス',
                 btnIdle: '待機', btnWork: '作業', btnSync: '同期', btnError: '警報', btnDecor: '部屋を編集',
                 drawerTitle: '部屋編集・アセットサイドバー', drawerClose: '閉じる',
-                authTitle: '編集パスコードを入力', authPlaceholder: 'パスコード入力', authVerify: '認証',
-                btnMove: '🏠引っ越し', btnHome: '🐚実家に戻る', btnBroker: '仲介', btnDIY: '自分で装飾', btnBrokerGo: '仲介に任せる',
+                authTitle: '編集パスコードを入力', authPlaceholder: 'パスコード入力', authVerify: '認証', authDefaultPassHint: '初期パスコード：1234（いつでも変更を相談可。強固なパス推奨）',
+                btnMove: '📦 引っ越し', btnHome: '🐚 実家に戻る', btnBroker: '🤝 仲介', btnDIY: '🪚 自分で装飾', btnBrokerGo: '仲介に任せる',
                 brokerHint: 'ロブスターにはどんな家をおすすめしますか',
                 brokerPromptPh: '例：故宮テーマ、モネ風、ダンジョン風、兵馬俑テーマ…',
                 brokerNeedPrompt: '先に仲介プランの説明を入力してください',
@@ -2584,6 +2584,10 @@ function toggleBrokerPanel() {
             try { setState('idle', t('moveSuccess').replace('✅ ', '')); } catch (e) {}
         }
 
+        function setWorkingStatus(detail = '工作中') {
+            try { setState('writing', detail); } catch (e) {}
+        }
+
         async function ensureGeminiConfigLoaded() {
             try {
                 const authRes = await fetch('/assets/auth/status', { cache: 'no-store' });
@@ -2655,6 +2659,7 @@ function toggleBrokerPanel() {
         async function generateCustomRpgBackground() {
             const brokerBtn = document.querySelector('#asset-broker-row .btn-broker');
             flashButtonActive(brokerBtn);
+            setWorkingStatus('正在处理中介装修方案');
             const out = document.getElementById('asset-move-result') || document.getElementById('asset-upload-result');
             const prompt = (document.getElementById('asset-broker-prompt')?.value || '').trim();
             if (!prompt) {
@@ -2704,6 +2709,7 @@ function toggleBrokerPanel() {
         async function generateRpgBackground() {
             const moveBtn = document.getElementById('btn-move-house');
             flashButtonActive(moveBtn);
+            setWorkingStatus('正在搬新家');
             const out = document.getElementById('asset-move-result') || document.getElementById('asset-upload-result');
             // 点击即刻显示遮罩，先于任何网络调用
             showRoomLoadingOverlay();
@@ -2748,6 +2754,7 @@ function toggleBrokerPanel() {
         async function restoreHomeBackground() {
             const homeBtn = document.getElementById('btn-back-home');
             flashButtonActive(homeBtn);
+            setWorkingStatus('正在回老家');
             const out = document.getElementById('asset-move-result') || document.getElementById('asset-upload-result');
             // 点击即刻显示遮罩，先于任何网络调用
             showRoomLoadingOverlay();
@@ -2787,6 +2794,9 @@ function toggleBrokerPanel() {
                 if (assetDrawerAuthed) {
                     await refreshAssetDrawerList();
                     bindDrawerFileMeta();
+                } else {
+                    const msg = document.getElementById('asset-auth-msg');
+                    if (msg) msg.textContent = t('authDefaultPassHint');
                 }
             } else {
                 assetManualPanelOpen = false;
