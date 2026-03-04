@@ -1,7 +1,8 @@
-# ✨ Star Office UI
+# Star Office UI
 
 🌐 Language: **中文** | [English](./README.en.md) | [日本語](./README.ja.md)
 
+![Star Office UI 封面 1](docs/screenshots/readme-cover-1.jpg)
 ![Star Office UI 封面 2](docs/screenshots/readme-cover-2.jpg)
 
 一个面向多 Agent 协作的像素办公室看板：把 AI 助手（OpenClaw / 龙虾）的工作状态实时可视化，帮助团队直观看到“谁在做什么、昨天做了什么、现在是否在线”。
@@ -44,8 +45,6 @@ python3 set_state.py syncing "同步进度中"
 python3 set_state.py error "发现问题，排查中"
 python3 set_state.py idle "待命中"
 ```
-
-![Star Office UI 封面 1](docs/screenshots/readme-cover-1.jpg)
 
 ---
 
@@ -287,6 +286,31 @@ export ASSET_DRAWER_PASS="your-strong-pass"
 保留原则：
 - 代码逻辑：MIT
 - 美术资产：禁止商用（仅学习/演示/交流用途）
+
+
+### F) 2026-03-04 P0/P1 安全与稳定性更新（新增）
+
+本次补丁聚焦“可上线稳定运行 + 状态同步真实性”，在不减少既有功能前提下完成以下更新：
+
+1. **P0 安全基线**
+   - 增加生产模式安全校验（弱 secret / 弱口令阻止启动）
+   - Session Cookie 安全参数加固
+   - 新增 `scripts/security_check.py`（上线前安全自检）
+
+2. **P1 结构优化（无行为变化）**
+   - 后端拆分：`security_utils.py` / `memo_utils.py` / `store_utils.py`
+   - 降低 `app.py` 耦合度，提升后续维护效率
+
+3. **状态同步与体验优化**
+   - 修复状态源读取路径优先级
+   - stale 状态自动回 `idle`，减少“假工作中”
+   - 优化首屏加载体感（骨架屏、非关键初始化延后）
+
+4. **服务稳定性修复**
+   - 修复并统一 `star-office-ui.service` 常驻运行（18888）
+   - 与 `star-office-push.service` 联动，降低 502 风险
+
+> 详细说明见：`docs/UPDATE_REPORT_2026-03-04_P0_P1.md`
 
 ## 项目结构（简版）
 

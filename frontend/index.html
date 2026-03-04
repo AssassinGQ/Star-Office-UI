@@ -28,12 +28,12 @@
         #main-stage {
             position: relative;
             width: 1280px;
-            transition: margin-left .25s ease;
-            will-change: margin-left;
+            transition: transform .25s ease;
+            will-change: transform;
         }
         body.drawer-open #main-stage {
-            /* 右侧紧贴侧边栏左缘，避免出现大空隙 */
-            margin-left: max(0px, calc(100vw - min(420px, 92vw) - 1280px));
+            /* 与右侧抽屉并列：按视口动态左移，确保与抽屉至少保留 20px 间隔 */
+            transform: translateX(calc(-1 * max(0px, (min(320px, 92vw) + 20px) - ((100vw - 1280px) / 2))));
         }
         #bottom-panels {
             display: flex;
@@ -64,6 +64,37 @@
             box-shadow: inset 0 0 0 4px #64477d;
             position: relative;
             z-index: 10;
+        }
+        /* 首屏骨架：避免 Phaser 未就绪时纯黑屏 */
+        #game-skeleton {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            background: radial-gradient(ellipse at center, #2a2a45 0%, #1a1a2e 65%, #151522 100%);
+            overflow: hidden;
+        }
+        #game-skeleton::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(255,255,255,0.03) 0px,
+                rgba(255,255,255,0.03) 1px,
+                transparent 1px,
+                transparent 12px
+            );
+            opacity: .6;
+        }
+        #game-skeleton .hint {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: #cbd5e1;
+            font-size: 14px;
+            letter-spacing: 1px;
+            text-shadow: 0 1px 0 rgba(0,0,0,.4);
         }
         #loading-overlay {
             position: fixed;
@@ -137,10 +168,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 calc(50% - 14px) 2px, calc(50% - 14px) 2px,
@@ -159,10 +190,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 9px 4px, 4px 9px,
@@ -205,25 +236,24 @@
         #asset-drawer {
             position: fixed;
             top: 0;
-            right: 0;
+            right: -320px;
             width: 320px;
             max-width: 92vw;
             height: 100vh;
             background: #111827;
             border-left: 2px solid #22c55e;
             box-shadow: -8px 0 24px rgba(0,0,0,0.45);
-            transform: translateX(100%);
-            transition: transform 0.25s ease;
+            transition: right 0.25s ease;
             z-index: 1000010;
             display: flex;
             flex-direction: column;
         }
-        #asset-drawer.open { transform: translateX(0); }
+        #asset-drawer.open { right: 0; }
         #asset-drawer-header {
             color: #ecfdf5;
             font-size: 15px;
             padding: 12px;
-            border-bottom: 1px solid #374151;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.22);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -231,23 +261,25 @@
         }
         #asset-drawer-body {
             padding: 10px;
-            padding-bottom: 150px;
             overflow: auto;
             color: #e5e7eb;
             font-size: 12px;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         .asset-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
-        .asset-toolbar input { flex:1; min-width: 150px; padding:6px 8px; border-radius:6px; border:1px solid #374151; background:#1f2937; color:#fff; }
-        .asset-toolbar button, #asset-drawer-header button { cursor:pointer; border:1px solid #4b5563; background:#1f2937; color:#fff; border-radius:6px; padding:6px 8px; font-family:'ArkPixel', monospace; }
-        .asset-toolbar button:hover, #asset-drawer-header button:hover { border-color:#22c55e; }
+        .asset-toolbar input { flex:1; min-width: 150px; padding:6px 8px; border-radius:6px; border:1px solid rgba(148, 163, 184, 0.22); background:#1f2937; color:#fff; }
+        .asset-toolbar button, #asset-drawer-header button { cursor:pointer; border:1px solid rgba(148, 163, 184, 0.24); background:#1f2937; color:#fff; border-radius:6px; padding:6px 8px; font-family:'ArkPixel', monospace; }
+        .asset-toolbar button:hover, #asset-drawer-header button:hover { border-color:#64748b; }
         #asset-list {
             display:flex;
             flex-direction:column;
             gap:6px;
             flex: 1 1 auto;
             min-height: 120px;
-            max-height: 40vh;
+            max-height: none;
             overflow-y: auto;
             padding-right: 2px;
             scrollbar-color: #1f2937 #0b1220;
@@ -258,21 +290,49 @@
         #asset-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 0; border: 1px solid #111827; }
         #asset-upload-panel {
             position: sticky;
-            bottom: 8px;
+            left: 8px;
+            right: 8px;
+            width: auto;
+            max-width: none;
+            box-sizing: border-box;
             margin-top: 10px;
-            background: #0b1220;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            padding: 8px;
-            z-index: 50;
+            margin-bottom: 0;
+            bottom: 8px;
+            background: rgba(11, 18, 32, 0.96);
+            border: 1px solid rgba(71, 85, 105, 0.75);
+            border-radius: 10px;
+            padding: 10px;
+            z-index: 1000030;
             display: none;
-            box-shadow: 0 -4px 12px rgba(0,0,0,.35);
+            box-shadow: 0 12px 30px rgba(0,0,0,.45);
+            backdrop-filter: blur(2px);
         }
         #asset-upload-panel.active {
             display: block;
         }
+        .asset-upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .asset-upload-grid > button {
+            width: 100%;
+            min-height: 36px;
+            padding: 6px 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background: #111827;
+            color: #e5e7eb;
+            border: 1px solid #334155;
+        }
+        .asset-upload-grid > button:hover {
+            background: #1f2937;
+            border-color: #475569;
+            color: #f8fafc;
+        }
         .asset-item {
-            border: 1px solid #374151;
+            border: 1px solid rgba(148, 163, 184, 0.16);
             background: #0f172a;
             border-radius: 8px;
             padding: 8px;
@@ -281,22 +341,24 @@
             gap: 8px;
             align-items: center;
             cursor: pointer;
+            transition: border-color .12s ease, background-color .12s ease;
         }
-        .asset-item.active { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e inset; }
+        .asset-item:hover { border-color: rgba(148, 163, 184, 0.34); background:#111b2f; }
+        .asset-item.active { border-color: #22c55e; box-shadow: 0 0 0 1px rgba(34,197,94,.55) inset; }
         .asset-vis-btn {
             min-width: 34px;
             height: 28px;
             padding: 2px 4px;
-            border: 1px solid #4b5563;
-            background: #111827;
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            background: rgba(15, 23, 42, 0.66);
             color: #d1d5db;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 14px;
             cursor: pointer;
             font-family:'ArkPixel', monospace;
         }
-        .asset-vis-btn:hover { border-color:#22c55e; color:#ecfccb; }
-        .asset-thumb { width:56px; height:56px; object-fit: contain; background:#0b1220; border:1px solid #374151; border-radius:6px; }
+        .asset-vis-btn:hover { border-color:rgba(148, 163, 184, 0.38); color:#ecfccb; background:rgba(30,41,59,.92); }
+        .asset-thumb { width:56px; height:56px; object-fit: contain; background:#0b1220; border:1px solid rgba(148, 163, 184, 0.16); border-radius:6px; }
         .asset-meta { line-height: 1.45; }
         .asset-path { color:#d1fae5; word-break: break-all; }
         .asset-sub { color:#9ca3af; font-size:11px; }
@@ -305,29 +367,68 @@
         #asset-upload-result .hint-p:last-child { margin-bottom: 0; }
         .asset-plus-box { width:100%; height:92px; border:2px dashed #4b5563; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:34px; cursor:pointer; user-select:none; }
         .asset-plus-box:hover { border-color:#22c55e; color:#22c55e; }
-        .asset-preview-box { border:1px solid #374151; border-radius:8px; padding:6px; background:#0b1220; margin-bottom:8px; }
+        .asset-preview-box { border:1px solid rgba(148, 163, 184, 0.10); border-radius:8px; padding:6px; background:#0b1220; margin-bottom:8px; }
         .asset-preview-title { color:#9ca3af; font-size:11px; margin-bottom:4px; }
-        .asset-preview-img { width:100%; height:92px; object-fit:contain; background:#111827; border:1px solid #1f2937; border-radius:6px; }
+        #asset-auth-gate {
+            border: 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 0;
+            padding: 0 0 10px;
+            margin-bottom: 10px;
+            background: transparent;
+        }
+        #asset-home-favorites {
+            border: 0;
+            border-top: 1px solid rgba(148, 163, 184, 0.16);
+            border-radius: 0;
+            background: transparent;
+            padding: 6px 0 4px;
+            margin: 0;
+        }
+        #asset-home-favorites-title {
+            font-size: 12px;
+            line-height: 1.35;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            min-height: 20px;
+        }
+        .asset-preview-img { width:100%; height:92px; object-fit:contain; background:#111827; border:1px solid rgba(148, 163, 184, 0.14); border-radius:6px; }
         .home-fav-list { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
-        .home-fav-item { min-width:126px; max-width:126px; border:1px solid #334155; border-radius:8px; background:#111827; padding:6px; }
-        .home-fav-item img { width:100%; height:70px; object-fit:cover; border:1px solid #1f2937; border-radius:6px; image-rendering:pixelated; }
+        .home-fav-item { min-width:126px; max-width:126px; border:0; border-radius:8px; background:#111827; padding:6px; box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12); }
+        .home-fav-item img { width:100%; height:70px; object-fit:cover; border:1px solid rgba(148, 163, 184, 0.14); border-radius:6px; image-rendering:pixelated; }
         .home-fav-meta { color:#9ca3af; font-size:10px; margin-top:4px; line-height:1.3; min-height:24px; }
-        .home-fav-item button { width:100%; margin-top:4px; border:1px solid #4b5563; background:#1f2937; color:#fff; border-radius:6px; padding:4px 6px; font-family:'ArkPixel', monospace; cursor:pointer; }
-        .home-fav-item button:hover { border-color:#22c55e; }
+        .home-fav-item button { width:100%; margin-top:4px; border:1px solid rgba(148, 163, 184, 0.20); background:#1f2937; color:#fff; border-radius:6px; padding:4px 6px; font-family:'ArkPixel', monospace; cursor:pointer; }
+        .home-fav-item button:hover { border-color:#64748b; }
+        .home-fav-del { background:#2a1416 !important; border-color: rgba(248,113,113,.35) !important; color:#fecaca !important; }
+        .home-fav-del:hover { border-color: rgba(248,113,113,.55) !important; }
         #gemini-api-doc-link { color:#86efac; text-decoration: underline; text-underline-offset: 2px; }
         #gemini-api-doc-link:hover { color:#bbf7d0; }
 
 
-        #asset-move-panel { border:1px solid #334155; background:#0b1220; border-radius:10px; padding:10px; margin-bottom:10px; }
-        #asset-home-actions-panel { border:1px solid #334155; background:#0b1220; border-radius:10px; padding:10px; }
-        #asset-home-actions-panel .asset-toolbar { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-        #asset-home-actions-panel .asset-toolbar > button { width:100%; margin:0; }
-        #asset-move-row { justify-content: center; gap:12px; margin-bottom:0; }
+        #asset-move-panel { border:0; background:transparent; border-radius:0; padding:6px 0 8px; margin-bottom:6px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); display:flex; flex-direction:column; justify-content:center; gap:6px; min-height:132px; }
+        #asset-home-actions-panel { border:0; background:transparent; border-radius:0; padding:6px 0 8px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); }
+        #asset-manual-panel {
+            border-top: 0;
+            padding-top: 6px;
+            margin-top: 6px;
+        }
+        #asset-home-actions-panel .asset-toolbar,
+        #asset-move-row,
+        #asset-broker-row {
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap:8px;
+            margin:0;
+            align-items:center;
+        }
+        #asset-home-actions-panel .asset-toolbar > button { width:100%; margin:0; min-height:42px; }
         #asset-move-row .btn-move,
         #asset-move-row .btn-home,
         #asset-broker-row .btn-broker,
         #asset-broker-row .btn-diy {
-            width:122px;
+            width:100%;
+            min-width:0;
             height:42px;
             padding:8px 8px 0;
             border:none;
@@ -358,7 +459,6 @@
         #asset-move-row .btn-home {
             background-image:url('/static/btn-back-home-sprite.png?v={{VERSION_TIMESTAMP}}');
         }
-        #asset-broker-row { justify-content:center; gap:12px; margin-top:8px; margin-bottom:0; }
         #asset-broker-row .btn-broker {
             background-image:url('/static/btn-broker-sprite.png?v={{VERSION_TIMESTAMP}}');
         }
@@ -484,6 +584,11 @@
             justify-content: center;
             pointer-events: auto;
             border-radius: 10px;
+        }
+        #lang-toggle-group,
+        #lang-toggle-group button {
+            position: relative;
+            z-index: 1000002 !important;
         }
         .room-loading-inner {
             display: flex;
@@ -613,10 +718,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 calc(50% - 14px) 2px, calc(50% - 14px) 2px,
@@ -635,10 +740,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 9px 4px, 4px 9px,
@@ -736,10 +841,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 calc(50% - 14px) 2px, calc(50% - 14px) 2px,
@@ -758,10 +863,10 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc),
-                linear-gradient(#8fa0bc, #8fa0bc), linear-gradient(#8fa0bc, #8fa0bc);
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
             background-repeat: no-repeat;
             background-size:
                 9px 4px, 4px 9px,
@@ -779,7 +884,7 @@
             background-color: #111827;
         }
         #memo-title {
-            color: #1b192e;
+            color: #1a1b2f;
             font-size: 16px;
             font-weight: bold;
             margin-bottom: 6px;
@@ -978,20 +1083,22 @@
             .asset-path { font-size: 11px; line-height: 1.3; }
             .asset-sub { font-size: 10px; }
             #asset-upload-panel {
-                position: sticky;
-                bottom: 0;
+                left: 8px;
+                right: 8px;
+                width: auto;
+                max-width: none;
+                bottom: 8px;
                 padding: 8px;
             }
-            #asset-upload-panel .asset-toolbar {
+            .asset-upload-grid {
                 gap: 6px;
-                margin-bottom: 6px;
             }
             #asset-upload-panel input {
                 min-width: 0;
                 flex: 1 1 42%;
             }
             #asset-upload-panel button {
-                min-height: 38px;
+                min-height: 36px;
             }
         }
     </style>
@@ -1007,6 +1114,7 @@
     
     <div id="main-stage">
         <div id="game-container">
+            <div id="game-skeleton"><div class="hint">正在进入像素办公室…</div></div>
             <div id="status-text">加载中...</div>
         </div>
         
@@ -1087,7 +1195,7 @@
                             <button id="speed-fast-btn" type="button" onclick="setSpeedMode('fast')" style="background:#22c55e;color:#052e16;border-color:#16a34a;">🍌2</button>
                             <button id="speed-quality-btn" type="button" onclick="setSpeedMode('quality')" style="background:#334155;color:#e5e7eb;border-color:#475569;">🍌Pro</button>
                         </div>
-                        <details id="asset-gemini-panel" style="margin-top:6px; border:1px dashed #334155; border-radius:8px; padding:8px; background:#0b1220;">
+                        <details id="asset-gemini-panel" style="margin-top:6px; border:0; border-top:1px solid rgba(148,163,184,.18); border-radius:0; padding:8px 0 0; background:transparent;">
                             <summary id="gemini-panel-summary" style="cursor:pointer; color:#cbd5e1;">🔐 API 设置（可折叠）</summary>
                             <div id="asset-gemini-config" style="display:block; margin-top:6px;">
                                 <div id="gemini-config-hint" class="asset-sub" style="margin-bottom:4px;">可选：填写你的生图 API Key（留空不影响基础功能）</div>
@@ -1111,26 +1219,24 @@
                         <button id="btn-back-last-bg" class="btn-home" onclick="restoreLastGeneratedBackground()">↩️ 回上一个家</button>
                         <button id="btn-favorite-home" class="btn-home" onclick="saveCurrentHomeFavorite()">⭐ 收藏这个家</button>
                     </div>
-                    <div id="asset-home-favorites" class="asset-preview-box" style="margin:0;">
-                        <div id="asset-home-favorites-title" class="asset-preview-title">🏠 收藏的家</div>
+                    <details id="asset-home-favorites" style="margin:0;">
+                        <summary id="asset-home-favorites-title" class="asset-preview-title">🏠 收藏的家</summary>
                         <div id="asset-home-favorites-list" class="home-fav-list"></div>
-                    </div>
+                    </details>
                 </div>
 
-                <div id="asset-manual-panel">
+                <div id="asset-manual-panel" style="display:flex; flex-direction:column; flex:1; min-height:0;">
                     <div class="asset-toolbar">
                         <input id="asset-search" placeholder="搜索资产名（如 desk / sofa / star）" oninput="renderAssetDrawerList()" />
                     </div>
                     <div id="asset-list"></div>
                     <div id="asset-upload-panel">
                         <input id="asset-upload-file" type="file" accept="image/*" style="display:none;" />
-                        <div class="asset-toolbar" style="margin-top:0; margin-bottom:6px; gap:8px;">
-                            <button id="asset-choose-btn" onclick="openInlineAssetUploader()">上传替换素材</button>
-                            <button id="asset-commit-refresh-btn" onclick="commitAndRefresh()" disabled style="opacity:.55;">确认并刷新</button>
-                        </div>
-                        <div class="asset-toolbar" style="margin-top:0; margin-bottom:6px; gap:8px;">
-                            <button id="asset-reset-default-btn" onclick="resetSelectedAssetToDefault()" disabled style="opacity:.55;">重置为默认资产</button>
-                            <button id="asset-restore-prev-btn" onclick="restoreSelectedAssetPrev()" disabled style="opacity:.55;">用上一版</button>
+                        <div class="asset-upload-grid" style="margin-top:0; margin-bottom:6px; gap:8px;">
+                            <button id="asset-choose-btn" onclick="openInlineAssetUploader()">上传素材</button>
+                            <button id="asset-commit-refresh-btn" onclick="commitAndRefresh()" disabled style="opacity:.55;">确认刷新</button>
+                            <button id="asset-reset-default-btn" onclick="resetSelectedAssetToDefault()" disabled style="opacity:.55;">重置默认</button>
+                            <button id="asset-restore-prev-btn" onclick="restoreSelectedAssetPrev()" disabled style="opacity:.55;">恢复上版</button>
                         </div>
                         <div id="asset-upload-result" class="asset-sub"></div>
                     </div>
@@ -1147,7 +1253,7 @@
     <button id="pan-toggle" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; z-index:999999; padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">
         移动视野
     </button>
-    <div id="lang-toggle-group" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 52px); left:12px; z-index:999999; display:flex; gap:2px; align-items:center;">
+    <div id="lang-toggle-group" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 52px); left:12px; z-index:1000002; display:flex; gap:2px; align-items:center;">
         <button id="lang-btn-en" onclick="setUILanguage('en')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">EN</button>
         <button id="lang-btn-jp" onclick="setUILanguage('ja')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">JP</button>
         <button id="lang-btn-cn" onclick="setUILanguage('zh')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">CN</button>
@@ -1168,7 +1274,7 @@
                 assetHide: '隐藏', assetShow: '显示',
                 resetToDefault: '重置为默认资产', restorePrevAsset: '用上一版',
                 btnMove: '📦 搬新家', btnHome: '🐚 回老家', btnHomeLast: '↩️ 回上一个家', btnHomeFavorite: '⭐ 收藏这个家', btnBroker: '🤝 找中介', btnDIY: '🪚 自己装', btnBrokerGo: '听中介的',
-                homeFavTitle: '🏠 收藏的家', homeFavEmpty: '还没有收藏，先点“⭐ 收藏这个家”', homeFavApply: '替换到当前地图', homeFavSaved: '✅ 已收藏当前地图', homeFavApplied: '✅ 已替换为收藏地图',
+                homeFavTitle: '🏠 收藏的家', homeFavEmpty: '还没有收藏，先点“⭐ 收藏这个家”', homeFavApply: '替换到当前地图', homeFavDelete: '删除', homeFavSaved: '✅ 已收藏当前地图', homeFavApplied: '✅ 已替换为收藏地图', homeFavDeleted: '🗑️ 已删除收藏',
                 brokerHint: '你会给龙虾推荐什么样的房子',
                 brokerPromptPh: '例如：故宫主题、莫奈风格、地牢主题、兵马俑主题……',
                 brokerNeedPrompt: '请先输入中介方案描述',
@@ -1179,7 +1285,7 @@
                 geminiPanelTitle: '🔐 API 设置（可折叠）', geminiHint: '可选：填写你的生图 API Key（留空不影响基础功能）', geminiApiDoc: '📘 如何申请 Google API Key', geminiInputPh: '粘贴 GEMINI_API_KEY（不会回显）', geminiSaveKey: '保存 Key', geminiMaskNoKey: '当前状态：未配置 Key', geminiMaskHasKey: '当前已配置：',
                 speedModeLabel: '生成模式', speedFast: '🍌2', speedQuality: '🍌Pro',
                 searchPlaceholder: '搜索资产名（如 desk / sofa / star）', loaded: '已加载', allAssets: '全部资产',
-                chooseImage: '上传替换素材', confirmUpload: '确认并刷新', uploadPending: '待上传', uploadTarget: '目标',
+                chooseImage: '上传素材', confirmUpload: '确认刷新', resetToDefault: '重置默认', restorePrevAsset: '恢复上版', uploadPending: '待上传', uploadTarget: '目标',
                 assetHintNotInScene: '当前场景未检测到此对象，仍可替换文件（刷新后生效）',
                 assetHintDefault: '通用素材：建议保持原图尺寸、透明通道与视觉重心一致，避免错位或失真',
                 showCoords: '显示坐标', hideCoords: '隐藏坐标', moveView: '移动视野', lockView: '锁定视野',
@@ -1196,7 +1302,7 @@
                 assetHide: 'Hide', assetShow: 'Show',
                 resetToDefault: 'Reset to Default', restorePrevAsset: 'Use Previous',
                 btnMove: '📦 New Home', btnHome: '🐚 Go Home', btnHomeLast: '↩️ Last One', btnHomeFavorite: '⭐ Save This Home', btnBroker: '🤝 Broker', btnDIY: '🪚 DIY', btnBrokerGo: 'Follow Broker',
-                homeFavTitle: '🏠 Saved Homes', homeFavEmpty: 'No saved homes yet. Tap “⭐ Save This Home” first.', homeFavApply: 'Apply to Current Map', homeFavSaved: '✅ Current map saved', homeFavApplied: '✅ Applied saved home',
+                homeFavTitle: '🏠 Saved Homes', homeFavEmpty: 'No saved homes yet. Tap “⭐ Save This Home” first.', homeFavApply: 'Apply to Current Map', homeFavDelete: 'Delete', homeFavSaved: '✅ Current map saved', homeFavApplied: '✅ Applied saved home', homeFavDeleted: '🗑️ Saved home deleted',
                 brokerHint: 'What kind of house would you recommend for Lobster?',
                 brokerPromptPh: 'e.g. Forbidden City theme, Monet style, dungeon theme, Terracotta Warriors theme...',
                 brokerNeedPrompt: 'Please enter broker style prompt first',
@@ -1207,7 +1313,7 @@
                 geminiPanelTitle: '🔐 API Settings (collapsible)', geminiHint: 'Optional: set your image API key (base features work without it)', geminiApiDoc: '📘 How to get a Google API Key', geminiInputPh: 'Paste GEMINI_API_KEY (input hidden)', geminiSaveKey: 'Save Key', geminiMaskNoKey: 'Current: no key configured', geminiMaskHasKey: 'Configured key:',
                 speedModeLabel: 'Render Mode', speedFast: '🍌2', speedQuality: '🍌Pro',
                 searchPlaceholder: 'Search assets (desk / sofa / star)', loaded: 'Loaded', allAssets: 'All Assets',
-                chooseImage: 'Upload Replacement Asset', confirmUpload: 'Confirm & Refresh', uploadPending: 'Pending Upload', uploadTarget: 'Target',
+                chooseImage: 'Upload Asset', confirmUpload: 'Apply Refresh', resetToDefault: 'Reset Default', restorePrevAsset: 'Restore Prev', uploadPending: 'Pending Upload', uploadTarget: 'Target',
                 assetHintNotInScene: 'This object is not detected in current scene; you can still replace file (effective after refresh)',
                 assetHintDefault: 'Generic asset: keep source size, alpha channel, and visual anchor to avoid drift/distortion',
                 showCoords: 'Show Coords', hideCoords: 'Hide Coords', moveView: 'Pan View', lockView: 'Lock View',
@@ -1224,7 +1330,7 @@
                 assetHide: '非表示', assetShow: '表示',
                 resetToDefault: 'デフォルトへ戻す', restorePrevAsset: '前の版へ戻す',
                 btnMove: '📦 引っ越し', btnHome: '🐚 実家に戻る', btnHomeLast: '↩️ ひとつ前へ', btnHomeFavorite: '⭐ この家を保存', btnBroker: '🤝 仲介', btnDIY: '🪚 自分で装飾', btnBrokerGo: '仲介に任せる',
-                homeFavTitle: '🏠 保存した家', homeFavEmpty: 'まだ保存がありません。先に「⭐ この家を保存」を押してください。', homeFavApply: '現在のマップに適用', homeFavSaved: '✅ 現在のマップを保存しました', homeFavApplied: '✅ 保存した家を適用しました',
+                homeFavTitle: '🏠 保存した家', homeFavEmpty: 'まだ保存がありません。先に「⭐ この家を保存」を押してください。', homeFavApply: '現在のマップに適用', homeFavDelete: '削除', homeFavSaved: '✅ 現在のマップを保存しました', homeFavApplied: '✅ 保存した家を適用しました', homeFavDeleted: '🗑️ 保存した家を削除しました',
                 brokerHint: 'ロブスターにはどんな家をおすすめしますか',
                 brokerPromptPh: '例：故宮テーマ、モネ風、ダンジョン風、兵馬俑テーマ…',
                 brokerNeedPrompt: '先に仲介プランの説明を入力してください',
@@ -1235,7 +1341,7 @@
                 geminiPanelTitle: '🔐 API設定（折りたたみ）', geminiHint: '任意：画像生成APIキーを設定（未設定でも基本機能は利用可）', geminiApiDoc: '📘 Google API Keyの取得方法', geminiInputPh: 'GEMINI_API_KEY を貼り付け（入力は非表示）', geminiSaveKey: 'Keyを保存', geminiMaskNoKey: '現在：キー未設定', geminiMaskHasKey: '設定済みキー：',
                 speedModeLabel: '生成モード', speedFast: '🍌2', speedQuality: '🍌Pro',
                 searchPlaceholder: 'アセット検索（desk / sofa / star）', loaded: '読み込み済み', allAssets: '全アセット',
-                chooseImage: '差し替え素材をアップロード', confirmUpload: '確定して更新', uploadPending: 'アップロード待ち', uploadTarget: '対象',
+                chooseImage: '素材アップロード', confirmUpload: '確定して更新', resetToDefault: '初期に戻す', restorePrevAsset: '前版に戻す', uploadPending: 'アップロード待ち', uploadTarget: '対象',
                 assetHintNotInScene: '現在のシーンでこのオブジェクトは未検出です。ファイル差し替えは可能（更新後に反映）',
                 assetHintDefault: '汎用素材：元サイズ・透過・視覚アンカーを維持し、ズレや崩れを防いでください',
                 showCoords: '座標表示', hideCoords: '座標非表示', moveView: '視点移動', lockView: '視点固定',
@@ -1318,6 +1424,8 @@
 
             setText('asset-choose-btn', 'chooseImage');
             setText('asset-commit-refresh-btn', 'confirmUpload');
+            setText('asset-reset-default-btn', 'resetToDefault');
+            setText('asset-restore-prev-btn', 'restorePrevAsset');
 
             const memoTitle = document.getElementById('memo-title');
             if (memoTitle) memoTitle.textContent = t('memoTitle');
@@ -1446,13 +1554,24 @@
         function hideLoadingOverlay() {
             setTimeout(() => {
                 if (loadingOverlay) {
-                    loadingOverlay.style.transition = 'opacity 0.5s ease';
+                    loadingOverlay.style.transition = 'opacity 0.35s ease';
                     loadingOverlay.style.opacity = '0';
                     setTimeout(() => {
                         loadingOverlay.style.display = 'none';
-                    }, 500);
+                    }, 360);
                 }
-            }, 300);
+            }, 80);
+        }
+
+        // Phaser 就绪后，移除首屏骨架，避免黑屏感
+        function hideGameSkeleton() {
+            const sk = document.getElementById('game-skeleton');
+            if (!sk) return;
+            sk.style.transition = 'opacity 0.25s ease';
+            sk.style.opacity = '0';
+            setTimeout(() => {
+                if (sk && sk.parentNode) sk.parentNode.removeChild(sk);
+            }, 260);
         }
 
         // 兜底：某些移动网络/CDN 抖动时，避免一直卡在“加载中”遮罩
@@ -1563,7 +1682,7 @@
         let guestTweens = {};  // agentId -> {move, name}
         let hiddenDemoNames = new Set();
         const DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === '1';
-        const FETCH_INTERVAL = 2000;
+        const FETCH_INTERVAL = 1000;
         const GUEST_AGENTS_FETCH_INTERVAL = 3500;
         const BLINK_INTERVAL = 2500;
         const BUBBLE_INTERVAL = 8000;
@@ -2795,7 +2914,7 @@ function toggleBrokerPanel() {
                         const box = document.getElementById('asset-gemini-config');
                         if (box) box.style.display = 'block';
                     } else if (data.code === 'MODEL_NOT_AVAILABLE') {
-                        out.textContent = '❌ 当前模型在此通道不可用，请切换可用模型后重试';
+                        out.textContent = '❌ 当前模型在此通道不可用，请切换可用模型后重试' + (data.detail ? ('\n\n详情：' + data.detail) : '');
                     } else {
                         out.textContent = `❌ 生成失败：${data.msg || res.status}`;
                     }
@@ -2840,7 +2959,7 @@ function toggleBrokerPanel() {
                         const box = document.getElementById('asset-gemini-config');
                         if (box) box.style.display = 'block';
                     } else if (data.code === 'MODEL_NOT_AVAILABLE') {
-                        out.textContent = '❌ 当前模型在此通道不可用，请切换可用模型后重试';
+                        out.textContent = '❌ 当前模型在此通道不可用，请切换可用模型后重试' + (data.detail ? ('\n\n详情：' + data.detail) : '');
                     } else {
                         out.textContent = `❌ 生成失败：${data.msg || res.status}`;
                     }
@@ -2974,6 +3093,7 @@ function toggleBrokerPanel() {
                     <img src="${thumb}" loading="lazy" alt="favorite-home" />
                     <div class="home-fav-meta">${time}</div>
                     <button onclick="applyHomeFavorite('${id}')">${t('homeFavApply')}</button>
+                    <button class="home-fav-del" onclick="deleteHomeFavorite('${id}')">${t('homeFavDelete')}</button>
                 </div>`;
             }).join('');
         }
@@ -3017,6 +3137,27 @@ function toggleBrokerPanel() {
                 out.textContent = `❌ 替换失败：${e.message || e}`;
             } finally {
                 hideRoomLoadingOverlay();
+            }
+        }
+
+        async function deleteHomeFavorite(id) {
+            const out = document.getElementById('asset-move-result') || document.getElementById('asset-upload-result');
+            if (!id) return;
+            if (!window.confirm('确定删除这个收藏吗？删除后不可恢复。')) return;
+            try {
+                const data = await fetchJsonSafe('/assets/home-favorites/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                if (!data.ok) {
+                    out.textContent = `❌ 删除失败：${data.msg || 'unknown error'}`;
+                    return;
+                }
+                out.textContent = t('homeFavDeleted');
+                await renderHomeFavorites(true);
+            } catch (e) {
+                out.textContent = `❌ 删除失败：${e.message || e}`;
             }
         }
 
@@ -3687,34 +3828,36 @@ function toggleBrokerPanel() {
                     supportsWebP = false;
                 }
             }
-            
+
             console.log('WebP 支持:', supportsWebP);
             applyLanguage();
             updateSpeedModeUI();
 
-            // 动态探测 flowers 精灵表帧规格（避免写死 65x65 导致显示比例异常）
-            try {
-                const res = await fetch('/assets/list?t=' + Date.now(), { cache: 'no-store' });
-                const data = await res.json();
-                if (data && data.ok && Array.isArray(data.items)) {
-                    const flowerItem = data.items.find(it => (it.path || '').toLowerCase().includes('flowers-bloom-v2'));
-                    if (flowerItem && Number(flowerItem.width) > 0 && Number(flowerItem.height) > 0) {
-                        const w = Number(flowerItem.width);
-                        const h = Number(flowerItem.height);
-                        // 固定规则：花朵单帧 128x128，4x4
-                        FLOWERS_FRAME_W = 128;
-                        FLOWERS_FRAME_H = 128;
-                        FLOWERS_FRAME_COLS = 4;
-                        FLOWERS_FRAME_ROWS = 4;
-                    }
-                }
-            } catch (e) {
-                console.warn('flowers 规格探测失败，使用默认 65x65', e);
-            }
-
-            // 启动 Phaser 游戏
+            // 直接启动 Phaser，避免首屏被额外接口阻塞
             new Phaser.Game(config);
-            setTimeout(() => { applySavedPositionOverrides(); }, 600);
+
+            // 非关键初始化延后到首屏之后，提升首开速度
+            setTimeout(async () => {
+                // 动态探测 flowers 精灵表帧规格（避免写死 65x65 导致显示比例异常）
+                try {
+                    const res = await fetch('/assets/list?t=' + Date.now(), { cache: 'no-store' });
+                    const data = await res.json();
+                    if (data && data.ok && Array.isArray(data.items)) {
+                        const flowerItem = data.items.find(it => (it.path || '').toLowerCase().includes('flowers-bloom-v2'));
+                        if (flowerItem && Number(flowerItem.width) > 0 && Number(flowerItem.height) > 0) {
+                            // 固定规则：花朵单帧 128x128，4x4
+                            FLOWERS_FRAME_W = 128;
+                            FLOWERS_FRAME_H = 128;
+                            FLOWERS_FRAME_COLS = 4;
+                            FLOWERS_FRAME_ROWS = 4;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('flowers 规格探测失败，使用默认 65x65', e);
+                }
+
+                applySavedPositionOverrides();
+            }, 600);
         }
 
         function preload() {
@@ -3790,6 +3933,7 @@ function toggleBrokerPanel() {
 
         function create() {
             game = this;
+            hideGameSkeleton();
             officeBgSprite = this.add.image(640, 360, 'office_bg');
 
             // Place furniture: Sofa
@@ -4347,6 +4491,81 @@ function toggleBrokerPanel() {
             return s;
         }
 
+        function applyVisualState(nextState) {
+            // Idle: show Star idle animation (main character)
+            if (nextState === 'idle') {
+                sofa.anims.stop();
+                sofa.setTexture('sofa_idle');
+
+                if (window.starWorking) {
+                    window.starWorking.setVisible(false);
+                    window.starWorking.anims.stop();
+                }
+
+                star.setVisible(true);
+                star.setScale(IDLE_STAR_SCALE);
+                star.anims.play('star_idle', true);
+                star.setPosition(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y);
+            } else if (nextState === 'error') {
+                // Error: no working animation at desk
+                sofa.anims.stop();
+                sofa.setTexture('sofa_idle');
+                star.setVisible(false);
+                star.anims.stop();
+                if (window.starWorking) {
+                    window.starWorking.setVisible(false);
+                    window.starWorking.anims.stop();
+                }
+            } else if (nextState === 'syncing') {
+                // Syncing: also no working animation at desk
+                sofa.anims.stop();
+                sofa.setTexture('sofa_idle');
+                star.setVisible(false);
+                star.anims.stop();
+                if (window.starWorking) {
+                    window.starWorking.setVisible(false);
+                    window.starWorking.anims.stop();
+                }
+            } else {
+                // Non-idle non-error: starWorking animation at desk
+                sofa.anims.stop();
+                sofa.setTexture('sofa_idle');
+                // Hide moving star, show desk star
+                star.setVisible(false);
+                star.anims.stop();
+                if (window.starWorking) {
+                    window.starWorking.setVisible(true);
+                    window.starWorking.anims.play('star_working', true);
+                }
+            }
+
+            // Server room logic
+            if (serverroom) {
+                if (nextState === 'idle') {
+                    serverroom.anims.stop();
+                    serverroom.setFrame(0);
+                } else {
+                    serverroom.anims.play('serverroom_on', true);
+                }
+            }
+
+            // Sync animation logic: default frame0; syncing play loop
+            if (syncAnimSprite) {
+                if (nextState === 'syncing') {
+                    if (syncAnimPlayable && syncAnimSprite.anims && syncAnimSprite.anims.play && syncAnimSprite.scene?.anims?.exists('sync_anim')) {
+                        if (!syncAnimSprite.anims.isPlaying || syncAnimSprite.anims.currentAnim?.key !== 'sync_anim') {
+                            syncAnimSprite.anims.play('sync_anim', true);
+                        }
+                    } else {
+                        syncAnimSprite.setFrame(0);
+                    }
+                } else {
+                    if (syncAnimSprite.anims && syncAnimSprite.anims.isPlaying) syncAnimSprite.anims.stop();
+                    syncAnimSprite.setFrame(0);
+                }
+            }
+        }
+
         function fetchStatus() {
             return fetch('/status', { cache: 'no-store' })
                 .then(response => response.json())
@@ -4357,89 +4576,17 @@ function toggleBrokerPanel() {
                         // If we're mid-transition, don't restart the path every poll
                         const changed = (pendingDesiredState === null) && (nextState !== currentState);
                         const nextLine = '[' + stateInfo.name + '] ' + (data.detail || '...');
+                        // 不论 changed 与否，都按服务端最新状态强制一次视觉同步，避免动画卡旧状态
+                        pendingDesiredState = null;
+                        if (currentState !== nextState) {
+                            currentState = nextState;
+                        }
+                        applyVisualState(nextState);
+
                         if (changed) {
                             typewriterTarget = nextLine;
                             typewriterText = '';
                             typewriterIndex = 0;
-
-                            // Set state immediately (no waypoints/path movement)
-                            pendingDesiredState = null;
-                            currentState = nextState;
-
-                            // Idle: show Star idle animation (main character)
-                            if (nextState === 'idle') {
-                                sofa.anims.stop();
-                                sofa.setTexture('sofa_idle');
-
-                                if (window.starWorking) {
-                                    window.starWorking.setVisible(false);
-                                    window.starWorking.anims.stop();
-                                }
-
-                                star.setVisible(true);
-                                star.setScale(IDLE_STAR_SCALE);
-                                star.anims.play('star_idle', true);
-                                star.setPosition(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y);
-                            } else if (nextState === 'error') {
-                                // Error: no working animation at desk
-                                sofa.anims.stop();
-                                sofa.setTexture('sofa_idle');
-                                star.setVisible(false);
-                                star.anims.stop();
-                                if (window.starWorking) {
-                                    window.starWorking.setVisible(false);
-                                    window.starWorking.anims.stop();
-                                }
-                            } else if (nextState === 'syncing') {
-                                // Syncing: also no working animation at desk
-                                sofa.anims.stop();
-                                sofa.setTexture('sofa_idle');
-                                star.setVisible(false);
-                                star.anims.stop();
-                                if (window.starWorking) {
-                                    window.starWorking.setVisible(false);
-                                    window.starWorking.anims.stop();
-                                }
-                            } else {
-                                // Non-idle non-error: starWorking animation at desk
-                                sofa.anims.stop();
-                                sofa.setTexture('sofa_idle');
-                                // Hide moving star, show desk star
-                                star.setVisible(false);
-                                star.anims.stop();
-                                if (window.starWorking) {
-                                    window.starWorking.setVisible(true);
-                                    window.starWorking.anims.play('star_working', true);
-                                }
-                            }
-
-                            // Server room logic:
-                            if (serverroom) {
-                                if (nextState === 'idle') {
-                                    serverroom.anims.stop();
-                                    serverroom.setFrame(0);
-                                } else {
-                                    serverroom.anims.play('serverroom_on', true);
-                                }
-                            }
-
-                            // Sync animation logic:
-                            // default: frame 0
-                            // state=syncing: play from frame 1
-                            if (syncAnimSprite) {
-                                if (nextState === 'syncing') {
-                                    if (syncAnimPlayable && syncAnimSprite.anims && syncAnimSprite.anims.play && syncAnimSprite.scene?.anims?.exists('sync_anim')) {
-                                        if (!syncAnimSprite.anims.isPlaying || syncAnimSprite.anims.currentAnim?.key !== 'sync_anim') {
-                                            syncAnimSprite.anims.play('sync_anim', true);
-                                        }
-                                    } else {
-                                        syncAnimSprite.setFrame(0);
-                                    }
-                                } else {
-                                    if (syncAnimSprite.anims && syncAnimSprite.anims.isPlaying) syncAnimSprite.anims.stop();
-                                    syncAnimSprite.setFrame(0);
-                                }
-                            }
                         } else {
                             if (!typewriterTarget || typewriterTarget !== nextLine) {
                                 typewriterTarget = nextLine;

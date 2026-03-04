@@ -26,5 +26,9 @@ healthcheck.log
 backend.log
 frontend/office_bg.png
 runtime-config.json
+runtime-config.local.json
+join-keys.json
+office-agent-state.json
 assets/bg-history/
+assets/home-favorites/
 frontend/*.bak

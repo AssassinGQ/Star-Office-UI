@@ -13,6 +13,20 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
+from security_utils import is_production_mode, is_strong_secret, is_strong_drawer_pass
+from memo_utils import get_yesterday_date_str, sanitize_content, extract_memo_from_file
+from store_utils import (
+    load_agents_state as _store_load_agents_state,
+    save_agents_state as _store_save_agents_state,
+    load_asset_positions as _store_load_asset_positions,
+    save_asset_positions as _store_save_asset_positions,
+    load_asset_defaults as _store_load_asset_defaults,
+    save_asset_defaults as _store_save_asset_defaults,
+    load_runtime_config as _store_load_runtime_config,
+    save_runtime_config as _store_save_runtime_config,
+    load_join_keys as _store_load_join_keys,
+    save_join_keys as _store_save_join_keys,
+)
 
 try:
     from PIL import Image
@@ -42,126 +56,25 @@ HOME_FAVORITES_DIR = os.path.join(ROOT_DIR, "assets", "home-favorites")
 HOME_FAVORITES_INDEX_FILE = os.path.join(HOME_FAVORITES_DIR, "index.json")
 HOME_FAVORITES_MAX = 30
 ASSET_POSITIONS_FILE = os.path.join(ROOT_DIR, "asset-positions.json")
+
+# 性能保护：默认关闭“每次打开页面随机换背景”，避免首页首屏被磁盘复制拖慢
+AUTO_ROTATE_HOME_ON_PAGE_OPEN = (os.getenv("AUTO_ROTATE_HOME_ON_PAGE_OPEN", "0").strip().lower() in {"1", "true", "yes", "on"})
+AUTO_ROTATE_MIN_INTERVAL_SECONDS = int(os.getenv("AUTO_ROTATE_MIN_INTERVAL_SECONDS", "60"))
+_last_home_rotate_at = 0
 ASSET_DEFAULTS_FILE = os.path.join(ROOT_DIR, "asset-defaults.json")
 RUNTIME_CONFIG_FILE = os.path.join(ROOT_DIR, "runtime-config.json")
 
 
-def get_yesterday_date_str():
-    """获取昨天的日期字符串 YYYY-MM-DD"""
-    yesterday = datetime.now() - timedelta(days=1)
-    return yesterday.strftime("%Y-%m-%d")
-
-
-def sanitize_content(text):
-    """清理内容，保护隐私"""
-    import re
-    
-    # 移除 OpenID、User ID 等
-    text = re.sub(r'ou_[a-f0-9]+', '[用户]', text)
-    text = re.sub(r'user_id="[^"]+"', 'user_id="[隐藏]"', text)
-    
-    # 移除具体的人名（如果有的话）
-    # 这里可以根据需要添加更多规则
-    
-    # 移除 IP 地址、路径等敏感信息
-    text = re.sub(r'/root/[^"\s]+', '[路径]', text)
-    text = re.sub(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', '[IP]', text)
-    
-    # 移除电话号码、邮箱等
-    text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[邮箱]', text)
-    text = re.sub(r'1[3-9]\d{9}', '[手机号]', text)
-    
-    return text
-
-
-def extract_memo_from_file(file_path):
-    """从 memory 文件中提取适合展示的 memo 内容（睿智风格的总结）"""
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        # 提取真实内容，不做过度包装
-        lines = content.strip().split("\n")
-        
-        # 提取核心要点
-        core_points = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith("#"):
-                continue
-            if line.startswith("- "):
-                core_points.append(line[2:].strip())
-            elif len(line) > 10:
-                core_points.append(line)
-        
-        if not core_points:
-            return "「昨日无事记录」\n\n若有恒，何必三更眠五更起；最无益，莫过一日曝十日寒。"
-        
-        # 从核心内容中提取 2-3 个关键点
-        selected_points = core_points[:3]
-        
-        # 睿智语录库
-        wisdom_quotes = [
-            "「工欲善其事，必先利其器。」",
-            "「不积跬步，无以至千里；不积小流，无以成江海。」",
-            "「知行合一，方可致远。」",
-            "「业精于勤，荒于嬉；行成于思，毁于随。」",
-            "「路漫漫其修远兮，吾将上下而求索。」",
-            "「昨夜西风凋碧树，独上高楼，望尽天涯路。」",
-            "「衣带渐宽终不悔，为伊消得人憔悴。」",
-            "「众里寻他千百度，蓦然回首，那人却在，灯火阑珊处。」",
-            "「世事洞明皆学问，人情练达即文章。」",
-            "「纸上得来终觉浅，绝知此事要躬行。」"
-        ]
-        
-        import random
-        quote = random.choice(wisdom_quotes)
-        
-        # 组合内容
-        result = []
-        
-        # 添加核心内容
-        if selected_points:
-            for i, point in enumerate(selected_points):
-                # 隐私清理
-                point = sanitize_content(point)
-                # 截断过长的内容
-                if len(point) > 40:
-                    point = point[:37] + "..."
-                # 每行最多 20 字
-                if len(point) <= 20:
-                    result.append(f"· {point}")
-                else:
-                    # 按 20 字切分
-                    for j in range(0, len(point), 20):
-                        chunk = point[j:j+20]
-                        if j == 0:
-                            result.append(f"· {chunk}")
-                        else:
-                            result.append(f"  {chunk}")
-        
-        # 添加睿智语录
-        if quote:
-            if len(quote) <= 20:
-                result.append(f"\n{quote}")
-            else:
-                for j in range(0, len(quote), 20):
-                    chunk = quote[j:j+20]
-                    if j == 0:
-                        result.append(f"\n{chunk}")
-                    else:
-                        result.append(chunk)
-        
-        return "\n".join(result).strip()
-        
-    except Exception as e:
-        print(f"提取 memo 失败: {e}")
-        return "「昨日记录加载失败」\n\n「往者不可谏，来者犹可追。」"
-
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="/static")
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.getenv("STAR_OFFICE_SECRET") or "star-office-dev-secret-change-me"
+
+# Session hardening
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=is_production_mode(),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+)
 
 # Guard join-agent critical section to enforce per-key concurrency under parallel requests
 join_lock = threading.Lock()
@@ -169,6 +82,15 @@ join_lock = threading.Lock()
 # Generate a version timestamp once at server startup for cache busting
 VERSION_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 ASSET_DRAWER_PASS_DEFAULT = os.getenv("ASSET_DRAWER_PASS", "1234")
+
+if is_production_mode():
+    hardening_errors = []
+    if not is_strong_secret(str(app.secret_key)):
+        hardening_errors.append("FLASK_SECRET_KEY / STAR_OFFICE_SECRET is weak (need >=24 chars, non-default)")
+    if not is_strong_drawer_pass(ASSET_DRAWER_PASS_DEFAULT):
+        hardening_errors.append("ASSET_DRAWER_PASS is weak (do not use default 1234; recommend >=8 chars)")
+    if hardening_errors:
+        raise RuntimeError("Security hardening check failed in production mode: " + "; ".join(hardening_errors))
 
 
 def _is_asset_editor_authed() -> bool:
@@ -269,13 +191,23 @@ if not os.path.exists(STATE_FILE):
     save_state(DEFAULT_STATE)
 
 
+_INDEX_HTML_CACHE = None
+
+
 @app.route("/", methods=["GET"])
 def index():
     """Serve the pixel office UI with built-in version cache busting"""
-    with open(os.path.join(FRONTEND_DIR, "index.html"), "r", encoding="utf-8") as f:
-        html = f.read()
-    html = html.replace("{{VERSION_TIMESTAMP}}", VERSION_TIMESTAMP)
-    resp = make_response(html)
+    # 默认禁用页面打开即换背景，避免首屏慢
+    # 如需启用，可配置 AUTO_ROTATE_HOME_ON_PAGE_OPEN=1
+    _maybe_apply_random_home_favorite()
+
+    global _INDEX_HTML_CACHE
+    if _INDEX_HTML_CACHE is None:
+        with open(os.path.join(FRONTEND_DIR, "index.html"), "r", encoding="utf-8") as f:
+            raw_html = f.read()
+        _INDEX_HTML_CACHE = raw_html.replace("{{VERSION_TIMESTAMP}}", VERSION_TIMESTAMP)
+
+    resp = make_response(_INDEX_HTML_CACHE)
     resp.headers["Content-Type"] = "text/html; charset=utf-8"
     return resp
 
@@ -319,77 +251,35 @@ DEFAULT_AGENTS = [
 
 
 def load_agents_state():
-    if os.path.exists(AGENTS_STATE_FILE):
-        try:
-            with open(AGENTS_STATE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except Exception:
-            pass
-    return list(DEFAULT_AGENTS)
+    return _store_load_agents_state(AGENTS_STATE_FILE, DEFAULT_AGENTS)
 
 
 def save_agents_state(agents):
-    with open(AGENTS_STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(agents, f, ensure_ascii=False, indent=2)
+    _store_save_agents_state(AGENTS_STATE_FILE, agents)
 
 
 def load_asset_positions():
-    if os.path.exists(ASSET_POSITIONS_FILE):
-        try:
-            with open(ASSET_POSITIONS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception:
-            pass
-    return {}
+    return _store_load_asset_positions(ASSET_POSITIONS_FILE)
 
 
 def save_asset_positions(data):
-    with open(ASSET_POSITIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _store_save_asset_positions(ASSET_POSITIONS_FILE, data)
 
 
 def load_asset_defaults():
-    if os.path.exists(ASSET_DEFAULTS_FILE):
-        try:
-            with open(ASSET_DEFAULTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception:
-            pass
-    return {}
+    return _store_load_asset_defaults(ASSET_DEFAULTS_FILE)
 
 
 def save_asset_defaults(data):
-    with open(ASSET_DEFAULTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _store_save_asset_defaults(ASSET_DEFAULTS_FILE, data)
 
 
 def load_runtime_config():
-    base = {
-        "gemini_api_key": os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "",
-        "gemini_model": os.getenv("GEMINI_MODEL") or "nanobanana-pro"
-    }
-    if os.path.exists(RUNTIME_CONFIG_FILE):
-        try:
-            with open(RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    base.update({k: data.get(k, base.get(k)) for k in ["gemini_api_key", "gemini_model"]})
-        except Exception:
-            pass
-    return base
+    return _store_load_runtime_config(RUNTIME_CONFIG_FILE)
 
 
 def save_runtime_config(data):
-    cfg = load_runtime_config()
-    cfg.update(data or {})
-    with open(RUNTIME_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    _store_save_runtime_config(RUNTIME_CONFIG_FILE, data)
 
 
 def _ensure_home_favorites_index():
@@ -417,21 +307,50 @@ def _save_home_favorites_index(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _maybe_apply_random_home_favorite():
+    """On page open, randomly apply one saved home favorite if available."""
+    global _last_home_rotate_at
+
+    if not AUTO_ROTATE_HOME_ON_PAGE_OPEN:
+        return False, "disabled"
+
+    try:
+        now_ts = datetime.now().timestamp()
+        if _last_home_rotate_at and (now_ts - _last_home_rotate_at) < AUTO_ROTATE_MIN_INTERVAL_SECONDS:
+            return False, "throttled"
+
+        idx = _load_home_favorites_index()
+        items = idx.get("items") or []
+        candidates = []
+        for it in items:
+            rel = (it.get("path") or "").strip()
+            if not rel:
+                continue
+            abs_path = os.path.join(ROOT_DIR, rel)
+            if os.path.exists(abs_path):
+                candidates.append((rel, abs_path))
+
+        if not candidates:
+            return False, "no-favorites"
+
+        rel, src = random.choice(candidates)
+        target = FRONTEND_PATH / "office_bg_small.webp"
+        if not target.exists():
+            return False, "missing-office-bg"
+
+        shutil.copy2(src, str(target))
+        _last_home_rotate_at = now_ts
+        return True, rel
+    except Exception as e:
+        return False, str(e)
+
+
 def load_join_keys():
-    if os.path.exists(JOIN_KEYS_FILE):
-        try:
-            with open(JOIN_KEYS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict) and isinstance(data.get("keys"), list):
-                    return data
-        except Exception:
-            pass
-    return {"keys": []}
+    return _store_load_join_keys(JOIN_KEYS_FILE)
 
 
 def save_join_keys(data):
-    with open(JOIN_KEYS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _store_save_join_keys(JOIN_KEYS_FILE, data)
 
 
 def _ensure_magick_or_ffmpeg_available():
@@ -591,6 +510,41 @@ def normalize_agent_state(s):
     return 'idle'
 
 
+# User-facing model aliases -> provider model ids
+USER_MODEL_TO_PROVIDER_MODELS = {
+    # 严格按用户要求：仅两种官方模型映射
+    "nanobanana-pro": [
+        "nano-banana-pro-preview",
+    ],
+    "nanobanana-2": [
+        "gemini-2.5-flash-image",
+    ],
+}
+
+PROVIDER_MODEL_TO_USER_MODEL = {
+    provider: user
+    for user, providers in USER_MODEL_TO_PROVIDER_MODELS.items()
+    for provider in providers
+}
+
+
+def _normalize_user_model(model_name: str) -> str:
+    m = (model_name or "").strip()
+    if not m:
+        return "nanobanana-pro"
+    low = m.lower()
+    if low in USER_MODEL_TO_PROVIDER_MODELS:
+        return low
+    if low in PROVIDER_MODEL_TO_USER_MODEL:
+        return PROVIDER_MODEL_TO_USER_MODEL[low]
+    return "nanobanana-pro"
+
+
+def _provider_model_candidates(user_model: str):
+    normalized = _normalize_user_model(user_model)
+    return list(USER_MODEL_TO_PROVIDER_MODELS.get(normalized, USER_MODEL_TO_PROVIDER_MODELS["nanobanana-pro"]))
+
+
 def _generate_rpg_background_to_webp(out_webp_path: str, width: int = 1280, height: int = 720, custom_prompt: str = "", speed_mode: str = "fast"):
     """Generate RPG-style room background and save as webp.
 
@@ -624,21 +578,22 @@ def _generate_rpg_background_to_webp(out_webp_path: str, width: int = 1280, heig
     # 默认使用更稳妥的 quality 档，避免 fast 模型在部分 API 通道不可用
     mode = (speed_mode or "quality").strip().lower()
     if mode not in {"fast", "quality"}:
-        mode = "fast"
+        mode = "quality"
 
-    configured_model = (runtime_cfg.get("gemini_model") or "").strip() or "gemini-3.1-flash-image-preview"
+    configured_user_model = _normalize_user_model(runtime_cfg.get("gemini_model") or "nanobanana-pro")
     if mode == "fast":
-        selected_model = "nanobanana-2"
+        preferred_user_model = "nanobanana-2"
         # fast 也提高基础清晰度：从 1024x576 提升到 1152x648（牺牲少量速度）
         gen_width, gen_height = 1152, 648
         ref_width, ref_height = 1152, 648
     else:
-        selected_model = configured_model
+        preferred_user_model = configured_user_model
         gen_width, gen_height = width, height
         ref_width, ref_height = width, height
 
-    if mode == "fast" and selected_model not in {"nanobanana-2", "nanobanana-pro"}:
-        selected_model = "nanobanana-2"
+    # 同时规避可能触发 400 的特殊能力参数：
+    # 仅 nanobanana-2 走 aspect-ratio，nanobanana-pro 交给模型默认比例（后续再标准化到 1280x720）
+    allow_aspect_ratio = (preferred_user_model == "nanobanana-2")
 
     prompt = (
         "Use a top-down pixel room composition compatible with an office game scene. "
@@ -653,11 +608,12 @@ def _generate_rpg_background_to_webp(out_webp_path: str, width: int = 1280, heig
         GEMINI_PYTHON,
         GEMINI_SCRIPT,
         "--prompt", prompt,
-        "--aspect-ratio", "16:9",
-        "--model", selected_model,
+        "--model", configured_user_model,
         "--out-dir", tmp_dir,
         "--cleanup",
     ]
+    if allow_aspect_ratio:
+        cmd.extend(["--aspect-ratio", "16:9"])
 
     # 强约束：每次都带固定参考图，保持房间区域布局不漂移
     ref_for_call = None
@@ -680,32 +636,73 @@ def _generate_rpg_background_to_webp(out_webp_path: str, width: int = 1280, heig
     # 运行时配置优先：只保留 GEMINI_API_KEY，避免脚本因双 key 报错
     env.pop("GOOGLE_API_KEY", None)
     env["GEMINI_API_KEY"] = api_key
-    env["GEMINI_MODEL"] = selected_model
 
     def _run_cmd(cmd_args):
         return subprocess.run(cmd_args, capture_output=True, text=True, env=env, timeout=240)
 
-    proc = _run_cmd(cmd)
-    if proc.returncode != 0 and mode == "fast":
-        err_text = (proc.stderr or proc.stdout or "").strip().lower()
-        if ("not found" in err_text and "models/" in err_text) or ("model_not_available" in err_text):
-            # fast 模型不可用时自动回退到稳定模型
-            fallback_model = configured_model or "gemini-3.1-flash-image-preview"
-            cmd_fallback = cmd[:]
-            if "--model" in cmd_fallback:
-                idx = cmd_fallback.index("--model")
-                if idx + 1 < len(cmd_fallback):
-                    cmd_fallback[idx + 1] = fallback_model
-            env["GEMINI_MODEL"] = fallback_model
-            proc = _run_cmd(cmd_fallback)
+    def _is_model_unavailable_error(text: str) -> bool:
+        low = (text or "").strip().lower()
+        return (
+            ("not found" in low and "models/" in low)
+            or ("model_not_available" in low)
+            or ("model is not available" in low)
+            or ("configured model is not available" in low)
+            or ("this model is not available" in low)
+            or ("not supported for generatecontent" in low)
+        )
 
-    if proc.returncode != 0:
+    def _with_model(cmd_args, model_name: str):
+        m = cmd_args[:]
+        if "--model" in m:
+            idx = m.index("--model")
+            if idx + 1 < len(m):
+                m[idx + 1] = model_name
+        else:
+            m.extend(["--model", model_name])
+        return m
+
+    # 模型多级回退（仅允许两类用户模型：nanobanana-pro / nanobanana-2）
+    # 每个用户模型映射到若干 provider 真实模型。
+    user_model_order = [preferred_user_model, configured_user_model]
+    user_model_order = [m for i, m in enumerate(user_model_order) if m and m not in user_model_order[:i]]
+
+    model_candidates = []
+    for um in user_model_order:
+        model_candidates.extend(_provider_model_candidates(um))
+    # 去重并清理空项
+    model_candidates = [m for i, m in enumerate(model_candidates) if m and m not in model_candidates[:i]]
+
+    proc = None
+    last_err_text = ""
+    model_unavailable_count = 0
+
+    for mname in model_candidates:
+        env["GEMINI_MODEL"] = mname
+        try_cmd = _with_model(cmd, mname)
+        proc = _run_cmd(try_cmd)
+        if proc.returncode == 0:
+            break
+
         err_text = (proc.stderr or proc.stdout or "").strip()
+        last_err_text = err_text
+
+        # key 失效/泄漏：立即终止，不继续尝试
         low = err_text.lower()
         if "your api key was reported as leaked" in low or "permission_denied" in low:
             raise RuntimeError("API_KEY_REVOKED_OR_LEAKED")
-        if "not found" in low and "models/" in low:
-            raise RuntimeError("MODEL_NOT_AVAILABLE")
+
+        if _is_model_unavailable_error(err_text):
+            model_unavailable_count += 1
+            continue
+
+        # 非模型不可用错误，直接返回真实错误
+        raise RuntimeError(f"生图失败: {err_text}")
+
+    if proc is None or proc.returncode != 0:
+        err_text = (last_err_text or "").strip()
+        if model_unavailable_count >= len(model_candidates) or _is_model_unavailable_error(err_text):
+            brief = (err_text or "").replace("\n", " ")[:240]
+            raise RuntimeError(f"MODEL_NOT_AVAILABLE::{brief}")
         raise RuntimeError(f"生图失败: {err_text}")
 
     try:
@@ -756,7 +753,22 @@ def state_to_area(state):
 if not os.path.exists(AGENTS_STATE_FILE):
     save_agents_state(DEFAULT_AGENTS)
 if not os.path.exists(JOIN_KEYS_FILE):
-    save_join_keys({"keys": []})
+    if os.path.exists(os.path.join(ROOT_DIR, "join-keys.sample.json")):
+        try:
+            with open(os.path.join(ROOT_DIR, "join-keys.sample.json"), "r", encoding="utf-8") as sf:
+                sample = json.load(sf)
+            save_join_keys(sample if isinstance(sample, dict) else {"keys": []})
+        except Exception:
+            save_join_keys({"keys": []})
+    else:
+        save_join_keys({"keys": []})
+
+# Tighten runtime-config file perms if exists
+if os.path.exists(RUNTIME_CONFIG_FILE):
+    try:
+        os.chmod(RUNTIME_CONFIG_FILE, 0o600)
+    except Exception:
+        pass
 
 
 @app.route("/agents", methods=["GET"])
@@ -1297,8 +1309,16 @@ def assets_generate_rpg_background():
             return jsonify({"ok": False, "code": "MISSING_API_KEY", "msg": "Missing GEMINI_API_KEY or GOOGLE_API_KEY"}), 400
         if msg == "API_KEY_REVOKED_OR_LEAKED":
             return jsonify({"ok": False, "code": "API_KEY_REVOKED_OR_LEAKED", "msg": "API key is revoked or flagged as leaked. Please rotate to a new key."}), 400
-        if msg == "MODEL_NOT_AVAILABLE":
-            return jsonify({"ok": False, "code": "MODEL_NOT_AVAILABLE", "msg": "Configured model is not available for this API key/channel."}), 400
+        if msg.startswith("MODEL_NOT_AVAILABLE"):
+            detail = ""
+            if "::" in msg:
+                detail = msg.split("::", 1)[1]
+            return jsonify({
+                "ok": False,
+                "code": "MODEL_NOT_AVAILABLE",
+                "msg": "Configured model is not available for this API key/channel.",
+                "detail": detail,
+            }), 400
         return jsonify({"ok": False, "msg": msg}), 500
 
 
@@ -1472,6 +1492,38 @@ def assets_home_favorites_save_current():
         return jsonify({"ok": False, "msg": str(e)}), 500
 
 
+@app.route("/assets/home-favorites/delete", methods=["POST"])
+def assets_home_favorites_delete():
+    guard = _require_asset_editor_auth()
+    if guard:
+        return guard
+    try:
+        data = request.get_json(silent=True) or {}
+        item_id = (data.get("id") or "").strip()
+        if not item_id:
+            return jsonify({"ok": False, "msg": "缺少 id"}), 400
+
+        idx = _load_home_favorites_index()
+        items = idx.get("items") or []
+        hit = next((x for x in items if (x.get("id") or "") == item_id), None)
+        if not hit:
+            return jsonify({"ok": False, "msg": "收藏项不存在"}), 404
+
+        rel = hit.get("path") or ""
+        abs_path = os.path.join(ROOT_DIR, rel)
+        if os.path.exists(abs_path):
+            try:
+                os.remove(abs_path)
+            except Exception:
+                pass
+
+        idx["items"] = [x for x in items if (x.get("id") or "") != item_id]
+        _save_home_favorites_index(idx)
+        return jsonify({"ok": True, "id": item_id, "msg": "已删除收藏"})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
+
 @app.route("/assets/home-favorites/apply", methods=["POST"])
 def assets_home_favorites_apply():
     guard = _require_asset_editor_auth()
@@ -1622,7 +1674,7 @@ def gemini_config_get():
             "ok": True,
             "has_api_key": bool(key),
             "api_key_masked": masked,
-            "gemini_model": cfg.get("gemini_model") or "nanobanana-pro",
+            "gemini_model": _normalize_user_model(cfg.get("gemini_model") or "nanobanana-pro"),
         })
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
@@ -1636,7 +1688,7 @@ def gemini_config_set():
     try:
         data = request.get_json(silent=True) or {}
         api_key = (data.get("api_key") or "").strip()
-        model = (data.get("model") or "").strip() or "nanobanana-pro"
+        model = _normalize_user_model((data.get("model") or "").strip() or "nanobanana-pro")
         payload = {"gemini_model": model}
         if api_key:
             payload["gemini_api_key"] = api_key
@@ -1866,6 +1918,20 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"State file: {STATE_FILE}")
     print("Listening on: http://0.0.0.0:18791")
+    mode = "production" if is_production_mode() else "development"
+    print(f"Mode: {mode}")
+    if is_production_mode():
+        print("Security hardening: ENABLED (strict checks)")
+    else:
+        weak_flags = []
+        if not is_strong_secret(str(app.secret_key)):
+            weak_flags.append("weak FLASK_SECRET_KEY/STAR_OFFICE_SECRET")
+        if not is_strong_drawer_pass(ASSET_DRAWER_PASS_DEFAULT):
+            weak_flags.append("weak ASSET_DRAWER_PASS")
+        if weak_flags:
+            print("Security hardening: WARNING (dev mode) -> " + ", ".join(weak_flags))
+        else:
+            print("Security hardening: OK")
     print("=" * 50)
-    
+
     app.run(host="0.0.0.0", port=18791, debug=False)
