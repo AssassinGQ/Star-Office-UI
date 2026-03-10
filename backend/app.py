@@ -2065,6 +2065,95 @@ def assets_upload():
         return jsonify({"ok": False, "msg": str(e)}), 500
 
 
+# iCloud 同步状态配置
+ICLOUD_LOG_DIR = os.getenv("ICLOUD_LOG_DIR", "/home/workspace/data/icloud/photo/")
+ICLOUD_PID_FILE = os.getenv("ICLOUD_PID_FILE", "/home/workspace/data/icloud/photo/icloud_sync.pid")
+
+
+@app.route("/api/icloud/status", methods=["GET"])
+def icloud_status():
+    """获取 iCloud 同步状态"""
+    status = {
+        "state": "unknown",
+        "emoji": "❓",
+        "message": "未知",
+        "pid": "-",
+        "last_log": "",
+        "last_time": ""
+    }
+
+    # 直接从日志文件解析最后一句关键日志（不管进程是否运行）
+    log_file = os.path.join(ICLOUD_LOG_DIR, "icloud_sync.log")
+    key_log = "All photos and videos have been downloaded"
+    if os.path.exists(log_file):
+        try:
+            with open(log_file) as f:
+                content = f.read()
+            # 查找最后一句关键日志
+            if key_log in content:
+                lines = content.split('\n')
+                for line in reversed(lines):
+                    if key_log in line:
+                        # 提取时间戳 "2026-03-02 16:05:12"
+                        if len(line) >= 19:
+                            try:
+                                dt = datetime.strptime(line[:19], "%Y-%m-%d %H:%M:%S")
+                                status["last_time"] = dt.strftime("%m-%d %H:%M")
+                            except:
+                                pass
+                        status["last_log"] = "已完成"
+                        break
+        except Exception:
+            pass
+
+    # 检查 PID 文件
+    if not os.path.exists(ICLOUD_PID_FILE):
+        status["state"] = "dead"
+        status["emoji"] = "🔴"
+        status["message"] = "已停止"
+        if status["last_time"]:
+            status["message"] = "已停止 " + status["last_time"]
+        return jsonify(status)
+
+    try:
+        with open(ICLOUD_PID_FILE) as f:
+            pid = f.read().strip()
+
+        result = subprocess.run(
+            f"ps -p {pid} -o pid= 2>/dev/null",
+            shell=True, capture_output=True, text=True
+        )
+
+        if not result.stdout.strip():
+            status["state"] = "dead"
+            status["emoji"] = "🔴"
+            status["message"] = "进程已死"
+            status["pid"] = pid
+            if status["last_time"]:
+                status["message"] = "已停止 " + status["last_time"]
+            return jsonify(status)
+
+        status["pid"] = pid
+        status["state"] = "running"
+        status["emoji"] = "🟢"
+        status["message"] = "运行中"
+
+    except Exception:
+        status["pid"] = "-"
+
+    return jsonify(status)
+
+
+@app.route("/api/icloud/restart", methods=["POST"])
+def icloud_restart():
+    """重启 iCloud 同步服务"""
+    script = os.getenv("ICLOUD_RESTART_SCRIPT", "/root/.openclaw/skills/icloud-photos-sync/manage_sync.sh")
+    if os.path.exists(script):
+        subprocess.run(f"bash {script} restart {ICLOUD_LOG_DIR}", shell=True, timeout=30)
+        return jsonify({"success": True, "message": "iCloud 重启命令已发送"})
+    return jsonify({"success": False, "message": "重启脚本不存在"}), 500
+
+
 if __name__ == "__main__":
     raw_port = os.environ.get("STAR_BACKEND_PORT", "19000")
     try:

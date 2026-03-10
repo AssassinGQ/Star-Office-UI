@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Star 的像素办公室</title>
+    <title>黄小纯小牛马的办公室</title>
     <style>
         @font-face {
             font-family: 'ArkPixel';
@@ -1317,7 +1317,7 @@
                 assetHintNotInScene: '当前场景未检测到此对象，仍可替换文件（刷新后生效）',
                 assetHintDefault: '通用素材：建议保持原图尺寸、透明通道与视觉重心一致，避免错位或失真',
                 showCoords: '显示坐标', hideCoords: '隐藏坐标', moveView: '移动视野', lockView: '锁定视野',
-                memoTitle: '昨 日 小 记', guestTitle: '访 客 列 表', officeTitle: '海辛小龙虾的办公室',
+                memoTitle: '昨 日 小 记', guestTitle: '访 客 列 表', officeTitle: '黄小纯小牛马的办公室',
                 loadingOffice: '正在加载 Star 的像素办公室...'
             },
             en: {
@@ -4156,6 +4156,74 @@ function toggleBrokerPanel() {
                 const next = Math.floor(Math.random() * window.posterFrameCount);
                 window.posterSprite.setFrame(next);
             });
+
+            // 电闸开关 - 切换 iCloud 状态
+            const switchX = 360, switchY = 50;
+            const switchBg = this.add.rectangle(switchX, switchY, 30, 40, 0x374151, 1);
+            switchBg.setOrigin(0.5);
+            switchBg.setDepth(5);
+            switchBg.setStrokeStyle(2, 0x6b7280);
+            switchBg.setInteractive({ useHandCursor: true });
+            
+            const switchKnob = this.add.rectangle(switchX, switchY + 12, 20, 16, 0x22c55e, 1);
+            switchKnob.setOrigin(0.5);
+            switchKnob.setDepth(6);
+            
+            let iCloudMode = false;
+            
+            // iCloud 状态显示（和海报一样大小）
+            const iCloudBg = this.add.rectangle(252, 66, 80, 100, 0x1a1a2e, 1);
+            iCloudBg.setOrigin(0.5);
+            iCloudBg.setDepth(3);
+            iCloudBg.setStrokeStyle(4, 0x8b5cf6);
+            iCloudBg.setVisible(false);
+            
+            // 三行文字，均匀分布
+            const iCloudLine1 = this.add.text(252, 40, '☁️', { fontSize: '18px' }).setOrigin(0.5).setDepth(4).setVisible(false);
+            const iCloudLine2 = this.add.text(252, 60, '🔴', { fontSize: '14px' }).setOrigin(0.5).setDepth(4).setVisible(false);
+            const iCloudLine3 = this.add.text(252, 85, '--', { fontFamily: 'ArkPixel, monospace', fontSize: '10px', fill: '#94a3b8' }).setOrigin(0.5).setDepth(4).setVisible(false);
+            
+            let cachedICloud = null;
+            fetch('/api/icloud/status').then(r => r.json()).then(d => { cachedICloud = d; });
+            
+            function updateICloud() {
+                if (!cachedICloud || !cachedICloud.last_time) {
+                    iCloudLine3.setText('--');
+                    return;
+                }
+                const dot = (cachedICloud.emoji === '🟢') ? '🟢' : (cachedICloud.emoji === '🔵') ? '🔵' : '🔴';
+                iCloudLine2.setText(dot);
+                iCloudLine3.setText(cachedICloud.last_time);
+            }
+            
+            switchBg.on('pointerdown', () => {
+                iCloudMode = !iCloudMode;
+                if (iCloudMode) {
+                    switchKnob.setFillStyle(0xef4444);
+                    switchKnob.setY(switchY - 12);
+                    poster.setVisible(false);
+                    iCloudBg.setVisible(true);
+                    iCloudLine1.setVisible(true);
+                    iCloudLine2.setVisible(true);
+                    iCloudLine3.setVisible(true);
+                    updateICloud();
+                } else {
+                    switchKnob.setFillStyle(0x22c55e);
+                    switchKnob.setY(switchY + 12);
+                    poster.setVisible(true);
+                    iCloudBg.setVisible(false);
+                    iCloudLine1.setVisible(false);
+                    iCloudLine2.setVisible(false);
+                    iCloudLine3.setVisible(false);
+                }
+            });
+            
+            setInterval(() => { 
+                fetch('/api/icloud/status').then(r => r.json()).then(d => { 
+                    cachedICloud = d; 
+                    if (iCloudMode) updateICloud(); 
+                }); 
+            }, 30000);
 
             // Random cat at (94,557)
             const catsFrameCount = (this.textures.get('cats')?.frameTotal || 1) - 1;
