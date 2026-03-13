@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import json
 import os
+import socket
 import sys
 import uuid
 import base64
@@ -323,14 +324,14 @@ class OpenClawWebSocketClient:
             self.pending_responses[msg_id].set_result(data)
             return
         
-        # 事件处理
-        method = data.get("method")
-        if method:
-            handler = self.event_handlers.get(method)
+        # 事件处理 - 支持 method 和 event 两种格式
+        event_name = data.get("event") or data.get("method")
+        if event_name:
+            handler = self.event_handlers.get(event_name)
             if handler:
-                await handler(data.get("params", {}))
-            elif method not in ["ping", "pong"]:
-                # 只在开启调试模式时打印
+                await handler(data.get("payload", data.get("params", {})))
+            elif event_name not in ["ping", "pong", "tick", "health"]:
+                # 打印事件以便调试
                 pass
     
     async def create_session(self, session_key: str = "agent:default:chat") -> Optional[str]:
@@ -381,25 +382,30 @@ class OpenClawWebSocketClient:
         full_content: List[str] = []
         
         def handle_stream(params: Dict):
-            chunk = params.get("content", "")
-            if chunk:
-                print(chunk, end="", flush=True)
-                full_content.append(chunk)
+            # 处理 agent 事件中的文本
+            text = params.get("text") or params.get("delta", "")
+            if text:
+                print(text, end="", flush=True)
+                full_content.append(text)
+            # 检查是否结束
+            if params.get("finish_reason") or params.get("phase") == "end":
+                print()
         
+        self.event_handlers["agent"] = handle_stream
         self.event_handlers["chat.stream"] = handle_stream
         
         try:
             await self.websocket.send(json.dumps(chat_msg))
             
             # 等待响应（简化处理）
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(5.0)
             
-            print()
             return "".join(full_content)
         except Exception as e:
             print(f"\n❌ 发送失败: {e}")
             return None
         finally:
+            self.event_handlers.pop("agent", None)
             self.event_handlers.pop("chat.stream", None)
     
     async def list_sessions(self) -> List[Dict]:
@@ -473,10 +479,17 @@ class OpenClawWebSocketClient:
 
 async def main():
     parser = argparse.ArgumentParser(description="OpenClaw WebSocket 客户端")
-    parser.add_argument("--uri", default="ws://localhost:18789", help="WebSocket 地址")
+    parser.add_argument("--host", default="localhost", help="Gateway 主机地址 (IP 或域名)")
+    parser.add_argument("--port", type=int, default=28789, help="Gateway 端口")
     parser.add_argument("--token", default="", help="Gateway token")
-    parser.add_argument("--origin", default="http://localhost:18789", help="Origin header")
+    parser.add_argument("--ssl", action="store_true", help="使用 WSS (HTTPS)")
+    parser.add_argument("--test", "-t", metavar="MSG", help="测试模式：发送消息后自动退出")
     args = parser.parse_args()
+    
+    # 构建 URI
+    scheme = "wss" if args.ssl else "ws"
+    uri = f"{scheme}://{args.host}:{args.port}"
+    origin = f"http{'s' if args.ssl else ''}://{args.host}:{args.port}"
     
     # 如果没有传入 token，尝试从环境变量读取
     token = args.token or os.environ.get("OPENCLAW_TOKEN", "")
@@ -485,8 +498,9 @@ async def main():
         sys.exit(1)
     
     print(f"📱 设备ID: {DEVICE_ID}")
+    print(f"🔗 连接到 {uri}")
     
-    client = OpenClawWebSocketClient(uri=args.uri, token=token, origin=args.origin)
+    client = OpenClawWebSocketClient(uri=uri, token=token, origin=origin)
     
     try:
         if not await client.connect():
@@ -503,29 +517,35 @@ async def main():
             print("无法创建 Session")
             return
         
-        print(f"\n{'='*50}")
         print("对话开始（输入 'quit' 退出，'new' 创建新 Session）")
         print(f"{'='*50}")
         
-        while True:
-            try:
-                user_input = input("\n👤 You: ").strip()
-                
-                if user_input.lower() == "quit":
+        # 测试模式：发送一条消息后自动退出
+        if args.test:
+            print(f"\n🧪 测试模式：发送 '{args.test}'")
+            await client.chat(args.test)
+            await asyncio.sleep(2)  # 等待响应
+            print("\n👋 测试完成")
+        else:
+            while True:
+                try:
+                    user_input = input("\n👤 You: ").strip()
+                    
+                    if user_input.lower() == "quit":
+                        break
+                    elif user_input.lower() == "new":
+                        await client.create_session()
+                        continue
+                    elif user_input.lower() == "list":
+                        await client.list_sessions()
+                        continue
+                    elif not user_input:
+                        continue
+                    
+                    await client.chat(user_input)
+                    
+                except (EOFError, KeyboardInterrupt):
                     break
-                elif user_input.lower() == "new":
-                    await client.create_session()
-                    continue
-                elif user_input.lower() == "list":
-                    await client.list_sessions()
-                    continue
-                elif not user_input:
-                    continue
-                
-                await client.chat(user_input)
-                
-            except (EOFError, KeyboardInterrupt):
-                break
         
         print("\n👋 再见！")
         
