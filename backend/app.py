@@ -2161,8 +2161,8 @@ import aiohttp
 import threading
 import queue
 
-# Gateway 配置
-GATEWAY_WS_URL = "ws://10.0.3.2:18789/ws"
+# Gateway 配置 - 如果在同一台机器上用 127.0.0.1:18789
+GATEWAY_WS_URL = "ws://127.0.0.1:18789/ws"
 GATEWAY_TOKEN = "41ead91add7770665bbeb8f8b67416e68a61bf7d8ba70d29"
 
 # 全局连接状态
@@ -2316,29 +2316,71 @@ gateway_conn = GatewayConnection()
 # ========== 前端 WebSocket 代理 ==========
 from aiohttp import web as aiohttp_web
 import aiohttp
+import json
+import time
+import hashlib
+import base64
+import os
 
 # 前端 WebSocket 端点
 FRONTEND_WS_PORT = 18886
 
+# 设备密钥文件
+DEVICE_IDENTITY_FILE = os.path.expanduser("~/.openclaw/python-client-identity.json")
+
+def load_or_create_device_identity():
+    """加载或创建设备身份"""
+    if os.path.exists(DEVICE_IDENTITY_FILE):
+        with open(DEVICE_IDENTITY_FILE, "r") as f:
+            return json.load(f)
+    return None
+
+def sign_payload(payload: str, private_key_pem: str) -> str:
+    """使用 Ed25519 私钥签名"""
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.backends import default_backend
+    
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode(),
+        password=None,
+        backend=default_backend()
+    )
+    signature = private_key.sign(payload.encode())
+    return base64.urlsafe_b64encode(signature).decode().rstrip('=')
+
+def build_device_auth_payload(device_id, client_id, client_mode, role, scopes, signed_at_ms, nonce, token=""):
+    """构建设备认证载荷"""
+    return "|".join([
+        "v2", device_id, client_id, client_mode, role,
+        ",".join(scopes), str(signed_at_ms), token, nonce
+    ])
+
 async def handle_frontend_websocket(request):
-    """处理前端 WebSocket 连接 - 直接连接到 Gateway"""
+    """处理前端 WebSocket 连接 - 使用正确的协议连接 Gateway"""
     print(f"[Frontend WS] 收到请求 from {request.remote}")
     ws = aiohttp_web.WebSocketResponse()
     await ws.prepare(request)
     print(f"[Frontend WS] 前端连接 OK, remote={request.remote}")
     
     gateway_ws = None
+    device_identity = load_or_create_device_identity()
+    
+    if not device_identity:
+        print("[Frontend WS] 错误: 未找到设备身份，请先运行 Python 客户端配对")
+        await ws.close()
+        return ws
+    
     try:
-        # 创建到 Gateway 的独立连接
         print("[Frontend WS] 正在连接 Gateway...")
         async with aiohttp.ClientSession() as session:
             gateway_ws = await session.ws_connect(GATEWAY_WS_URL)
             print("[Frontend WS] Gateway 连接打开")
             
-            # 发送 connect 请求
+            # 第一步：发送空的 connect 请求，等待 challenge
             connect_req = {
                 "type": "req",
-                "id": "frontend-1",
+                "id": "frontend-init",
                 "method": "connect",
                 "params": {
                     "minProtocol": 3,
@@ -2350,36 +2392,118 @@ async def handle_frontend_websocket(request):
                         "mode": "cli"
                     },
                     "role": "operator",
-                    "scopes": ["operator.read", "operator.write", "operator.admin"],
+                    "scopes": ["operator.admin", "operator.approvals", "operator.pairing"],
                     "auth": {"token": GATEWAY_TOKEN}
                 }
             }
-            print(f"[Frontend WS] 发送 connect 请求, scopes={connect_req['params']['scopes']}")
+            print(f"[Frontend WS] 发送初始 connect 请求")
             await gateway_ws.send_json(connect_req)
             
+            # 等待 challenge 响应
+            nonce = None
+            challenge_received = False
+            async for msg in gateway_ws:
+                if msg.type == aiohttp_web.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    print(f"[Frontend WS] 收到消息: {data.get('type')}, {data.get('event', data.get('error', {}).get('message', ''))}")
+                    
+                    # 收到 challenge
+                    if data.get("type") == "event" and data.get("event") == "connect.challenge":
+                        nonce = data.get("payload", {}).get("nonce")
+                        print(f"[Frontend WS] 收到 challenge, nonce={nonce}")
+                        challenge_received = True
+                        break
+                    # 连接成功（可能直接成功如果已配对）
+                    if data.get("type") == "res" and data.get("ok") == True:
+                        print(f"[Frontend WS] 连接成功（已配对设备）")
+                        challenge_received = True
+                        break
+                    # 错误
+                    if data.get("type") == "res" and data.get("ok") == False:
+                        error = data.get("error", {})
+                        print(f"[Frontend WS] 连接错误: {error.get('message')}")
+                        # 如果是未配对，尝试带 device 重试
+                        if error.get("code") in ["NOT_PAIRED", "PAIRING_REQUIRED"]:
+                            print("[Frontend WS] 设备未配对，需要用户批准")
+                            break
+                        else:
+                            await ws.close()
+                            return ws
+            
+            if not challenge_received:
+                print("[Frontend WS] 未收到 challenge")
+                await ws.close()
+                return ws
+            
+            # 第二步：如果有 nonce，发送带 device 签名的 connect
+            if nonce:
+                signed_at_ms = int(time.time() * 1000)
+                payload = build_device_auth_payload(
+                    device_id=device_identity["device_id"],
+                    client_id="cli",
+                    client_mode="cli",
+                    role="operator",
+                    scopes=["operator.admin", "operator.approvals", "operator.pairing"],
+                    signed_at_ms=signed_at_ms,
+                    nonce=nonce,
+                    token=GATEWAY_TOKEN
+                )
+                signature = sign_payload(payload, device_identity["private_key"])
+                
+                connect_req = {
+                    "type": "req",
+                    "id": "frontend-connect",
+                    "method": "connect",
+                    "params": {
+                        "minProtocol": 3,
+                        "maxProtocol": 3,
+                        "client": {
+                            "id": "cli",
+                            "version": "1.0.0",
+                            "platform": "web",
+                            "mode": "cli"
+                        },
+                        "role": "operator",
+                        "scopes": ["operator.admin", "operator.approvals", "operator.pairing"],
+                        "auth": {"token": GATEWAY_TOKEN},
+                        "device": {
+                            "id": device_identity["device_id"],
+                            "publicKey": device_identity["public_key"],
+                            "signature": signature,
+                            "signedAt": signed_at_ms,
+                            "nonce": nonce
+                        }
+                    }
+                }
+                print(f"[Frontend WS] 发送带签名的 connect 请求")
+                await gateway_ws.send_json(connect_req)
+                
+                # 等待 hello-ok
+                async for msg in gateway_ws:
+                    if msg.type == aiohttp_web.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        print(f"[Frontend WS] 收到消息: {data.get('type')}, ok={data.get('ok')}")
+                        if data.get("type") == "res" and data.get("ok") == True:
+                            print(f"[Frontend WS] 认证成功!")
+                        break
+            
+            # 第三步：转发消息
             async def forward_to_gateway():
-                """从前端转发到 Gateway"""
                 try:
                     async for msg in ws:
                         if msg.type == aiohttp_web.WSMsgType.TEXT:
-                            text = msg.data
-                            print(f"[Frontend WS] 收到前端消息: {text[:150]}...")
-                            print(f"[Frontend WS] 转发到 Gateway: {text[:150]}...")
-                            await gateway_ws.send_str(text)
+                            await gateway_ws.send_str(msg.data)
                 except Exception as e:
                     print(f"[Frontend WS] 转发到 Gateway 错误: {e}")
             
             async def forward_to_frontend():
-                """从 Gateway 转发到前端"""
                 try:
                     async for msg in gateway_ws:
                         if msg.type == aiohttp_web.WSMsgType.TEXT:
-                            print(f"[Frontend WS] 转发到前端: {msg.data[:100]}...")
                             await ws.send_str(msg.data)
                 except Exception as e:
                     print(f"[Frontend WS] 转发到前端错误: {e}")
             
-            # 并发运行
             await asyncio.gather(forward_to_gateway(), forward_to_frontend())
             
     except Exception as e:
