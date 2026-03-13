@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Star Office UI - Backend State Service"""
 
+import asyncio
 from flask import Flask, jsonify, send_from_directory, make_response, request, session
 from datetime import datetime, timedelta
 import json
@@ -2154,6 +2155,318 @@ def icloud_restart():
     return jsonify({"success": False, "message": "重启脚本不存在"}), 500
 
 
+# ========== OpenClaw Gateway WebSocket 代理 (使用 aiohttp) ==========
+import asyncio
+import aiohttp
+import threading
+import queue
+
+# Gateway 配置
+GATEWAY_WS_URL = "ws://10.0.3.2:18789/ws"
+GATEWAY_TOKEN = "41ead91add7770665bbeb8f8b67416e68a61bf7d8ba70d29"
+
+# 全局连接状态
+class GatewayConnection:
+    def __init__(self):
+        self.ws = None
+        self.connected = False
+        self.message_queue = queue.Queue()
+        self.lock = threading.Lock()
+        self.challenge_nonce = None
+        self.running = False
+        self._loop = None
+        self._thread = None
+        
+    def connect(self):
+        """连接到 Gateway (异步)"""
+        with self.lock:
+            if self.connected:
+                return True
+            
+            try:
+                print("[Gateway] 正在连接...")
+                # 在后台线程中运行 asyncio 事件循环
+                self.running = True
+                self._thread = threading.Thread(target=self._run_async, daemon=True)
+                self._thread.start()
+                return True
+            except Exception as e:
+                print(f"[Gateway] 连接失败: {e}")
+                return False
+    
+    def _run_async(self):
+        """在后台线程中运行异步连接"""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._connect_async())
+    
+    async def _connect_async(self):
+        """异步连接到 Gateway"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(GATEWAY_WS_URL) as ws:
+                    print("[Gateway] 连接打开")
+                    self.connected = True
+                    
+                    # 发送 connect 请求
+                    await self._send_connect_request(ws)
+                    
+                    # 接收消息循环
+                    while self.running:
+                        try:
+                            msg = await asyncio.wait_for(ws.receive(), timeout=1)
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                await self._handle_message(ws, msg.data)
+                            elif msg.type == aiohttp.WSMsgType.ERROR:
+                                print(f"[Gateway] WebSocket error: {msg.data}")
+                                break
+                            elif msg.type == aiohttp.WSMsgType.CLOSE:
+                                print(f"[Gateway] Connection closed")
+                                break
+                        except asyncio.TimeoutError:
+                            continue
+                        except Exception as e:
+                            print(f"[Gateway] Receive error: {e}")
+                            break
+        except Exception as e:
+            print(f"[Gateway] 连接错误: {e}")
+        finally:
+            self.connected = False
+            print("[Gateway] 连接已关闭")
+    
+    async def _send_connect_request(self, ws):
+        """发送 connect 请求"""
+        req = {
+            "type": "req",
+            "id": "star-ui-1",
+            "method": "connect",
+            "params": {
+                "minProtocol": 3,
+                "maxProtocol": 3,
+                "client": {
+                    "id": "cli",
+                    "version": "1.0.0",
+                    "platform": "web",
+                    "mode": "cli"
+                },
+                "role": "operator",
+                "scopes": ["operator.read", "operator.write", "operator.admin"],
+                "auth": {"token": GATEWAY_TOKEN}
+            }
+        }
+        await ws.send_json(req)
+        print("[Gateway] 发送 connect 请求")
+    
+    async def _handle_message(self, ws, message):
+        """处理收到的消息"""
+        try:
+            data = json.loads(message)
+            print(f"[Gateway] 收到: {message[:100]}...")
+            
+            # 处理 challenge
+            if data.get("type") == "event" and data.get("event") == "connect.challenge":
+                self.challenge_nonce = data["payload"]["nonce"]
+                await self._send_connect_request(ws)
+                return
+            
+            # 处理连接响应
+            if data.get("type") == "res" and data.get("method") == "connect":
+                if data.get("ok"):
+                    print("[Gateway] 认证成功!")
+                else:
+                    print(f"[Gateway] 认证失败: {data.get('error')}")
+                return
+            
+            # 其他消息放入队列
+            self.message_queue.put(data)
+            
+        except Exception as e:
+            print(f"[Gateway] 消息处理错误: {e}")
+    
+    def send_message(self, message):
+        """发送消息 (同步接口，异步实现)"""
+        if not self.connected:
+            return {"error": "未连接"}
+        
+        # 暂时返回错误，需要改造为支持异步发送
+        return {"error": "异步发送未实现"}
+    
+    def get_messages(self):
+        """获取消息（轮询）"""
+        messages = []
+        while not self.message_queue.empty():
+            try:
+                messages.append(self.message_queue.get_nowait())
+            except:
+                break
+        return messages
+    
+    def close(self):
+        """关闭连接"""
+        self.running = False
+        self.connected = False
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+
+# 全局 Gateway 连接实例
+gateway_conn = GatewayConnection()
+
+
+# ========== 前端 WebSocket 代理 ==========
+from aiohttp import web as aiohttp_web
+import aiohttp
+
+# 前端 WebSocket 端点
+FRONTEND_WS_PORT = 18886
+
+async def handle_frontend_websocket(request):
+    """处理前端 WebSocket 连接 - 直接连接到 Gateway"""
+    print(f"[Frontend WS] 收到请求 from {request.remote}")
+    ws = aiohttp_web.WebSocketResponse()
+    await ws.prepare(request)
+    print(f"[Frontend WS] 前端连接 OK, remote={request.remote}")
+    
+    gateway_ws = None
+    try:
+        # 创建到 Gateway 的独立连接
+        print("[Frontend WS] 正在连接 Gateway...")
+        async with aiohttp.ClientSession() as session:
+            gateway_ws = await session.ws_connect(GATEWAY_WS_URL)
+            print("[Frontend WS] Gateway 连接打开")
+            
+            # 发送 connect 请求
+            connect_req = {
+                "type": "req",
+                "id": "frontend-1",
+                "method": "connect",
+                "params": {
+                    "minProtocol": 3,
+                    "maxProtocol": 3,
+                    "client": {
+                        "id": "cli",
+                        "version": "1.0.0",
+                        "platform": "web",
+                        "mode": "cli"
+                    },
+                    "role": "operator",
+                    "scopes": ["operator.read", "operator.write", "operator.admin"],
+                    "auth": {"token": GATEWAY_TOKEN}
+                }
+            }
+            print(f"[Frontend WS] 发送 connect 请求, scopes={connect_req['params']['scopes']}")
+            await gateway_ws.send_json(connect_req)
+            
+            async def forward_to_gateway():
+                """从前端转发到 Gateway"""
+                try:
+                    async for msg in ws:
+                        if msg.type == aiohttp_web.WSMsgType.TEXT:
+                            text = msg.data
+                            print(f"[Frontend WS] 收到前端消息: {text[:150]}...")
+                            print(f"[Frontend WS] 转发到 Gateway: {text[:150]}...")
+                            await gateway_ws.send_str(text)
+                except Exception as e:
+                    print(f"[Frontend WS] 转发到 Gateway 错误: {e}")
+            
+            async def forward_to_frontend():
+                """从 Gateway 转发到前端"""
+                try:
+                    async for msg in gateway_ws:
+                        if msg.type == aiohttp_web.WSMsgType.TEXT:
+                            print(f"[Frontend WS] 转发到前端: {msg.data[:100]}...")
+                            await ws.send_str(msg.data)
+                except Exception as e:
+                    print(f"[Frontend WS] 转发到前端错误: {e}")
+            
+            # 并发运行
+            await asyncio.gather(forward_to_gateway(), forward_to_frontend())
+            
+    except Exception as e:
+        print(f"[Frontend WS] 错误: {e}")
+    finally:
+        if gateway_ws:
+            await gateway_ws.close()
+        print("[Frontend WS] 连接关闭")
+    
+    return ws
+
+
+async def start_frontend_ws_server():
+    """启动前端 WebSocket 服务器"""
+    app = aiohttp_web.Application()
+    app.router.add_get('/chat', handle_frontend_websocket)
+    runner = aiohttp_web.AppRunner(app)
+    await runner.setup()
+    site = aiohttp_web.TCPSite(runner, '0.0.0.0', FRONTEND_WS_PORT)
+    await site.start()
+    print(f"[Frontend WS] 已启动在 ws://0.0.0.0:{FRONTEND_WS_PORT}/chat")
+
+
+# 在后台线程中启动前端 WebSocket 服务器
+def start_frontend_ws_in_background():
+    """在后台线程中启动前端 WebSocket 服务器"""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(start_frontend_ws_server())
+        loop.run_forever()
+    except Exception as e:
+        print(f"[Frontend WS] 启动错误: {e}")
+
+
+# 修改 GatewayConnection 支持异步发送
+def _patch_gateway_connection():
+    """为 GatewayConnection 添加异步发送支持"""
+    original_connect = gateway_conn.connect
+    
+    def new_connect():
+        result = original_connect()
+        # 如果使用 aiohttp，发送消息需要特殊处理
+        return result
+    
+    # 添加异步发送方法
+    gateway_conn.send_message_async = lambda msg: gateway_conn.message_queue.put(msg) if hasattr(gateway_conn, 'message_queue') else None
+
+
+# 启动时调用
+_patch_gateway_connection()
+
+
+@app.route("/api/gateway/connect", methods=["POST"])
+def gateway_connect():
+    """连接到 Gateway"""
+    success = gateway_conn.connect()
+    if success:
+        return jsonify({"success": True, "message": "连接中..."})
+    return jsonify({"success": False, "message": "连接失败"}), 500
+
+
+@app.route("/api/gateway/status")
+def gateway_status():
+    """获取连接状态"""
+    return jsonify({
+        "connected": gateway_conn.connected,
+        "message_count": gateway_conn.message_queue.qsize()
+    })
+
+
+@app.route("/api/gateway/send", methods=["POST"])
+def gateway_send():
+    """发送消息到 Gateway"""
+    data = request.get_json()
+    result = gateway_conn.send_message(data)
+    return jsonify(result)
+
+
+@app.route("/api/gateway/messages")
+def gateway_messages():
+    """获取来自 Gateway 的消息（轮询）"""
+    messages = gateway_conn.get_messages()
+    return jsonify({"messages": messages})
+
+
 if __name__ == "__main__":
     raw_port = os.environ.get("STAR_BACKEND_PORT", "19000")
     try:
@@ -2188,5 +2501,9 @@ if __name__ == "__main__":
             print("Security hardening: OK")
     print("=" * 50)
 
+    # 启动前端 WebSocket 服务器
+    ws_thread = threading.Thread(target=start_frontend_ws_in_background, daemon=True)
+    ws_thread.start()
+    
     app.run(host="0.0.0.0", port=backend_port, debug=False)
 

@@ -37,11 +37,16 @@
         }
         #bottom-panels {
             display: flex;
+            flex-direction: column;
             gap: 20px;
             width: 1280px;
             max-width: none;
-            justify-content: flex-start;
             margin-top: 20px;
+        }
+        #bottom-panels-row {
+            display: flex;
+            gap: 20px;
+            justify-content: flex-start;
         }
         #game-container {
             position: relative;
@@ -833,6 +838,135 @@
         .guest-agent-buttons button.leave-btn:hover {
             background: #6a2828;
         }
+        
+        /* AI 聊天面板 */
+        #chat-panel {
+            width: 100%;
+            height: 280px;
+            background: #1f2937;
+            border: 2px solid #374151;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        #chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: #111827;
+            border-bottom: 1px solid #374151;
+        }
+        #chat-title {
+            color: #f9fafb;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        #chat-status {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: #374151;
+            color: #9ca3af;
+        }
+        #chat-status.connected {
+            background: #065f46;
+            color: #34d399;
+        }
+        #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        #chat-messages .message {
+            max-width: 85%;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        #chat-messages .message-user {
+            align-self: flex-end;
+            background: #3b82f6;
+            color: #fff;
+        }
+        #chat-messages .message-bot {
+            align-self: flex-start;
+            background: #374151;
+            color: #f3f4f6;
+        }
+        #chat-messages .message-system {
+            align-self: center;
+            background: transparent;
+            color: #6b7280;
+            font-size: 11px;
+            text-align: center;
+        }
+        #chat-messages .message-streaming {
+            opacity: 0.7;
+        }
+        #chat-messages .message p { margin: 0 0 6px 0; }
+        #chat-messages .message p:last-child { margin-bottom: 0; }
+        #chat-messages .message code {
+            background: #111827;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        #chat-messages .message pre {
+            background: #111827;
+            padding: 8px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 6px 0;
+        }
+        #chat-messages .message pre code {
+            background: transparent;
+            padding: 0;
+        }
+        #chat-messages .message strong { font-weight: 600; }
+        #chat-messages .message a { color: #60a5fa; }
+        
+        #chat-input-area {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            background: #111827;
+            border-top: 1px solid #374151;
+        }
+        #chat-input {
+            flex: 1;
+            padding: 8px 12px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            color: #f9fafb;
+            font-size: 13px;
+        }
+        #chat-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+        #chat-input::placeholder { color: #6b7280; }
+        #chat-send {
+            padding: 8px 16px;
+            background: #3b82f6;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        #chat-send:hover { background: #2563eb; }
+        #chat-send:disabled { background: #4b5563; cursor: not-allowed; }
+        
         /* Memo 区域 - 4:3 小正方形 */
         #memo-panel {
             position: relative;
@@ -1147,6 +1281,21 @@
     
     <!-- 底部面板容器 -->
     <div id="bottom-panels">
+        <!-- AI 聊天面板 -->
+        <div id="chat-panel">
+            <div id="chat-header">
+                <span id="chat-title">💬 AI 聊天</span>
+                <span id="chat-status" class="disconnected">未连接</span>
+            </div>
+            <div id="chat-messages"></div>
+            <div id="chat-input-area">
+                <input id="chat-input" type="text" placeholder="输入消息... (/help 查看命令, Enter发送)" />
+                <button id="chat-send">发送</button>
+            </div>
+        </div>
+        
+        <!-- 三个面板的行容器 -->
+        <div id="bottom-panels-row">
         <!-- Memo 面板 -->
         <div id="memo-panel">
             <div id="memo-title">昨 日 小 记</div>
@@ -1177,6 +1326,7 @@
                 <div style="color:#9ca3af;font-size:12px;text-align:center;padding:20px 0;">正在加载访客...</div>
             </div>
             </div>
+        </div>
         </div>
     </div>
     
@@ -4952,6 +5102,324 @@ function toggleBrokerPanel() {
 
         // 启动游戏
         initGame();
+
+        // ========== AI 聊天 WebSocket ==========
+        // Tailscale 访问: ws://<tailscale-ip>:28886/chat
+        const CHAT_WS_URL = 'ws://' + window.location.hostname + ':28886/chat';
+        const CHAT_TOKEN = '41ead91add7770665bbeb8f8b67416e68a61bf7d8ba70d29';
+        
+        let chatWs = null;
+        let sessionKey = null;
+        let messageCount = 0;
+        let msgId = 1;
+        let wsConnected = false;
+        
+        function getMsgId() { return 'msg-' + (msgId++); }
+        
+        function sendWS(data) {
+            if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+                chatWs.send(JSON.stringify(data));
+            }
+        }
+        
+        function initChat() {
+            // 连接 WebSocket
+            connectChat();
+            
+            // 绑定发送按钮
+            const sendBtn = document.getElementById('chat-send');
+            const input = document.getElementById('chat-input');
+            
+            if (sendBtn) {
+                sendBtn.addEventListener('click', sendChatMessage);
+            }
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') sendChatMessage();
+                });
+            }
+        }
+        
+        function connectChat() {
+            const statusEl = document.getElementById('chat-status');
+            if (!statusEl) return;
+            
+            console.log('[Chat] 开始连接 WebSocket:', CHAT_WS_URL);
+            
+            try {
+                chatWs = new WebSocket(CHAT_WS_URL);
+                
+                chatWs.onopen = () => {
+                    console.log('[Chat] WebSocket 连接打开');
+                    statusEl.textContent = '连接中...';
+                    wsConnected = true;
+                };
+                
+                chatWs.onmessage = (event) => {
+                    console.log('[Chat] 收到消息:', event.data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('[Chat] 解析后的消息:', data);
+                        
+                        // 处理 connect.challenge
+                        if (data.type === 'event' && data.event === 'connect.challenge') {
+                            console.log('[Chat] 收到 challenge，发送 connect 请求');
+                            const connectReq = {
+                                type: 'req',
+                                id: getMsgId(),
+                                method: 'connect',
+                                params: {
+                                    minProtocol: 3,
+                                    maxProtocol: 3,
+                                    client: {
+                                        id: 'cli',
+                                        version: '1.0.0',
+                                        platform: 'web',
+                                        mode: 'cli'
+                                    },
+                                    role: 'operator',
+                                    scopes: ['operator.read', 'operator.write'],
+                                    caps: [],
+                                    commands: [],
+                                    auth: { token: CHAT_TOKEN }
+                                }
+                            };
+                            sendWS(connectReq);
+                            return;
+                        }
+                        
+                        handleChatMessage(data);
+                    } catch(e) {
+                        console.error('[Chat] 消息解析失败:', e);
+                    }
+                };
+                
+                chatWs.onerror = (err) => {
+                    console.error('[Chat] WebSocket 错误:', err);
+                    statusEl.textContent = '连接错误';
+                    statusEl.className = 'disconnected';
+                    wsConnected = false;
+                };
+                
+                chatWs.onclose = (e) => {
+                    console.log('[Chat] WebSocket 关闭:', e.code, e.reason);
+                    statusEl.textContent = '已断开';
+                    statusEl.className = 'disconnected';
+                    chatWs = null;
+                    sessionKey = null;
+                    wsConnected = false;
+                };
+                
+            } catch(e) {
+                console.error('[Chat] 连接失败:', e);
+                statusEl.textContent = '连接失败';
+            }
+        }
+        
+        function handleChatMessage(data) {
+            const statusEl = document.getElementById('chat-status');
+            const messagesEl = document.getElementById('chat-messages');
+            if (!messagesEl) return;
+            
+            // hello-ok 或任何成功的 res 响应
+            if (data.type === 'res' && data.ok === true) {
+                console.log('[Chat] 收到 ok=true 响应，设置已连接');
+                statusEl.textContent = '已连接';
+                statusEl.className = 'connected';
+                if (statusEl.textContent === '连接中...') {
+                    addChatMessage('system', '✅ 连接成功，可以开始对话了');
+                }
+                return;
+            }
+            
+            // 认证成功
+            if (data.type === 'auth' && data.success) {
+                sessionKey = data.session_key;
+                statusEl.textContent = '已连接';
+                statusEl.className = 'connected';
+                addChatMessage('system', '✅ 连接成功，可以开始对话了');
+                return;
+            }
+            
+            // 认证失败
+            if (data.type === 'auth' && !data.success) {
+                statusEl.textContent = '认证失败';
+                statusEl.className = 'disconnected';
+                addChatMessage('system', '❌ 认证失败: ' + (data.error || '未知错误'));
+                return;
+            }
+            
+            // 流式片段
+            if (data.type === 'chunk') {
+                const msgId = data.message_id;
+                const content = data.chunk || '';
+                
+                if (messagesEl) {
+                    const existingMsg = document.getElementById('msg-' + msgId);
+                    if (existingMsg) {
+                        existingMsg.innerHTML = parseMarkdown(content);
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                    } else {
+                        addChatMessage('bot', content, msgId, true);
+                    }
+                }
+                return;
+            }
+            
+            // 完整消息
+            if (data.type === 'message') {
+                addChatMessage('bot', data.content || '', data.message_id);
+                return;
+            }
+            
+            // 错误
+            if (data.type === 'error') {
+                addChatMessage('system', '❌ ' + data.error);
+                return;
+            }
+        }
+        
+        function addChatMessage(role, content, msgId, streaming) {
+            const messagesEl = document.getElementById('chat-messages');
+            if (!messagesEl) return;
+            
+            const msgEl = document.createElement('div');
+            msgEl.className = 'message message-' + role;
+            if (streaming) msgEl.className += ' message-streaming';
+            if (msgId) msgEl.id = 'msg-' + msgId;
+            
+            msgEl.innerHTML = parseMarkdown(content);
+            messagesEl.appendChild(msgEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        
+        function parseMarkdown(text) {
+            if (!text) return '';
+            
+            // 转义 HTML
+            text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            // 代码块
+            text = text.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            
+            // 行内代码
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // 粗体
+            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // 链接
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+            
+            // 换行
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
+        }
+        
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('chat-send');
+            const message = input.value.trim();
+            
+            console.log('[Chat] 尝试发送消息:', message, 'WS状态:', chatWs ? chatWs.readyState : 'null');
+            
+            if (!message) return;
+            if (!chatWs || chatWs.readyState !== WebSocket.OPEN) {
+                console.log('[Chat] WS未连接，readyState:', chatWs ? chatWs.readyState : 'null');
+                addChatMessage('system', '❌ 未连接，请刷新页面重试');
+                return;
+            }
+            
+            // 显示用户消息
+            addChatMessage('user', message);
+            input.value = '';
+            input.disabled = true;
+            sendBtn.disabled = true;
+            
+            // 处理命令
+            if (message.startsWith('/')) {
+                console.log('[Chat] 处理命令:', message);
+                handleChatCommand(message);
+                input.disabled = false;
+                sendBtn.disabled = false;
+                return;
+            }
+            
+            // 发送消息
+            messageCount++;
+            const tempId = 'temp-' + messageCount;
+            
+            // 显示等待中
+            const container = document.getElementById('chat-messages');
+            if (container) {
+                const waiting = document.createElement('div');
+                waiting.className = 'chat-message assistant';
+                waiting.id = 'chat-waiting';
+                waiting.textContent = '正在输入...';
+                container.appendChild(waiting);
+            }
+            
+            const msgData = {
+                type: 'req',
+                id: getMsgId(),
+                method: 'agent',
+                params: {
+                    message: message
+                }
+            };
+            console.log('[Chat] 发送消息:', msgData);
+            sendWS(msgData);
+        }
+        
+        function handleChatCommand(cmd) {
+            const parts = cmd.split(' ');
+            const command = parts[0].toLowerCase();
+            const args = parts.slice(1).join(' ');
+            
+            switch(command) {
+                case '/help':
+                    addChatMessage('bot', '可用命令:\n' +
+                        '/help - 显示帮助\n' +
+                        '/session - 显示会话信息\n' +
+                        '/thinking - 切换思考模式\n' +
+                        '/clear - 清除聊天记录');
+                    break;
+                case '/session':
+                    if (sessionKey) {
+                        addChatMessage('bot', '会话 Key: ' + sessionKey);
+                    } else {
+                        addChatMessage('bot', '未建立会话');
+                    }
+                    break;
+                case '/thinking':
+                    if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+                        chatWs.send(JSON.stringify({
+                            type: 'thinking',
+                            enable: args !== 'off',
+                            session_key: sessionKey
+                        }));
+                    }
+                    addChatMessage('system', '思考模式已' + (args === 'off' ? '关闭' : '开启'));
+                    break;
+                case '/clear':
+                    const messagesEl = document.getElementById('chat-messages');
+                    if (messagesEl) {
+                        messagesEl.innerHTML = '';
+                    }
+                    addChatMessage('system', '聊天记录已清除');
+                    break;
+                default:
+                    addChatMessage('bot', '未知命令: ' + command + '\n输入 /help 查看可用命令');
+            }
+        }
+        
+        // 页面加载后初始化聊天
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initChat);
+        } else {
+            initChat();
+        }
     </script>
 </body>
 </html>
