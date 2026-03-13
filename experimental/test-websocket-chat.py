@@ -329,9 +329,10 @@ class OpenClawWebSocketClient:
         if event_name:
             handler = self.event_handlers.get(event_name)
             if handler:
-                await handler(data.get("payload", data.get("params", {})))
+                # 事件消息的 payload 在 data 中
+                payload = data.get("data", data.get("payload", data.get("params", {})))
+                await handler(payload)
             elif event_name not in ["ping", "pong", "tick", "health"]:
-                # 打印事件以便调试
                 pass
     
     async def create_session(self, session_key: str = "agent:default:chat") -> Optional[str]:
@@ -381,18 +382,34 @@ class OpenClawWebSocketClient:
         # 收集流式输出
         full_content: List[str] = []
         
-        def handle_stream(params: Dict):
-            # 处理 agent 事件中的文本
-            text = params.get("text") or params.get("delta", "")
+        async def handle_stream(params: Dict):
+            # agent 事件: data.text, chat 事件: message.content
+            text = ""
+            
+            # agent 事件: params.data.text
+            data = params.get("data", {})
+            if data:
+                text = data.get("text", "") or data.get("delta", "")
+            
+            # chat 事件: params.message.content
+            if not text:
+                msg = params.get("message", {})
+                content = msg.get("content", [])
+                for c in content:
+                    text = c.get("text", "")
+                    if text:
+                        break
+            
             if text:
                 print(text, end="", flush=True)
                 full_content.append(text)
+            
             # 检查是否结束
-            if params.get("finish_reason") or params.get("phase") == "end":
+            if params.get("state") == "final" or (data.get("phase") == "end" if data else False):
                 print()
         
+        self.event_handlers["chat"] = handle_stream
         self.event_handlers["agent"] = handle_stream
-        self.event_handlers["chat.stream"] = handle_stream
         
         try:
             await self.websocket.send(json.dumps(chat_msg))
@@ -405,8 +422,22 @@ class OpenClawWebSocketClient:
             print(f"\n❌ 发送失败: {e}")
             return None
         finally:
+            self.event_handlers.pop("chat", None)
             self.event_handlers.pop("agent", None)
-            self.event_handlers.pop("chat.stream", None)
+        
+        try:
+            await self.websocket.send(json.dumps(chat_msg))
+            
+            # 等待响应（简化处理）
+            await asyncio.sleep(5.0)
+            
+            return "".join(full_content)
+        except Exception as e:
+            print(f"\n❌ 发送失败: {e}")
+            return None
+        finally:
+            self.event_handlers.pop("chat", None)
+            self.event_handlers.pop("agent", None)
     
     async def list_sessions(self) -> List[Dict]:
         """查询 Session 列表"""
