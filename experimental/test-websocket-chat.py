@@ -384,6 +384,7 @@ class OpenClawWebSocketClient:
         
         async def handle_chat_event(params: Dict):
             nonlocal full_content
+            print(f"[DEBUG] chat event: {params}")
             state = params.get("state", "")
             msg = params.get("message", {})
             content = msg.get("content", [])
