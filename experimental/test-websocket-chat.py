@@ -381,24 +381,38 @@ class OpenClawWebSocketClient:
         # 收集流式输出
         full_content: List[str] = []
         response_done = asyncio.Event()
+        final_text = ""
+        
+        async def handle_agent_event(params: Dict):
+            nonlocal full_content, final_text
+            data = params.get("data", {})
+            if not data:
+                return
+            
+            delta = data.get("delta", "")
+            if delta:
+                print(delta, end="", flush=True)
+                full_content.append(delta)
         
         async def handle_chat_event(params: Dict):
-            nonlocal full_content
+            nonlocal full_content, final_text
             state = params.get("state", "")
             msg = params.get("message", {})
             content = msg.get("content", [])
             for c in content:
                 text = c.get("text", "")
                 if text:
-                    # 只在 final 状态时打印
-                    if state == "final":
-                        print(text, end="", flush=True)
-                        full_content.append(text)
+                    final_text = text
             
             if state == "final":
                 response_done.set()
+                # 如果 final 文本与之前不同，补充打印
+                if final_text and not any(final_text in part for part in full_content):
+                    print(final_text, end="", flush=True)
+                    full_content.append(final_text)
                 print()
         
+        self.event_handlers["agent"] = handle_agent_event
         self.event_handlers["chat"] = handle_chat_event
         
         try:
@@ -415,6 +429,7 @@ class OpenClawWebSocketClient:
             print(f"\n❌ 发送失败: {e}")
             return None
         finally:
+            self.event_handlers.pop("agent", None)
             self.event_handlers.pop("chat", None)
     
     async def list_sessions(self) -> List[Dict]:
