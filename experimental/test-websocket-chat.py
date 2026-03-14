@@ -385,7 +385,6 @@ class OpenClawWebSocketClient:
         
         async def handle_agent_event(params: Dict):
             nonlocal full_content, final_text
-            print(f"[DEBUG] agent event: {params}")
             data = params.get("data", {})
             if not data:
                 return
