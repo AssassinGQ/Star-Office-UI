@@ -382,17 +382,6 @@ class OpenClawWebSocketClient:
         full_content: List[str] = []
         response_done = asyncio.Event()
         
-        async def handle_agent_event(params: Dict):
-            nonlocal full_content
-            data = params.get("data", {})
-            if not data:
-                return
-            
-            delta = data.get("delta", "")
-            if delta:
-                print(delta, end="", flush=True)
-                full_content.append(delta)
-        
         async def handle_chat_event(params: Dict):
             nonlocal full_content
             state = params.get("state", "")
@@ -408,7 +397,6 @@ class OpenClawWebSocketClient:
                 response_done.set()
                 print()
         
-        self.event_handlers["agent"] = handle_agent_event
         self.event_handlers["chat"] = handle_chat_event
         
         try:
@@ -425,7 +413,6 @@ class OpenClawWebSocketClient:
             print(f"\n❌ 发送失败: {e}")
             return None
         finally:
-            self.event_handlers.pop("agent", None)
             self.event_handlers.pop("chat", None)
     
     async def list_sessions(self) -> List[Dict]:
