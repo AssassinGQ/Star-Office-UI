@@ -384,15 +384,16 @@ class OpenClawWebSocketClient:
         
         async def handle_chat_event(params: Dict):
             nonlocal full_content
-            print(f"[DEBUG] chat event: {params}")
             state = params.get("state", "")
             msg = params.get("message", {})
             content = msg.get("content", [])
             for c in content:
                 text = c.get("text", "")
                 if text:
-                    print(text, end="", flush=True)
-                    full_content.append(text)
+                    # 只在 final 状态时打印
+                    if state == "final":
+                        print(text, end="", flush=True)
+                        full_content.append(text)
             
             if state == "final":
                 response_done.set()
