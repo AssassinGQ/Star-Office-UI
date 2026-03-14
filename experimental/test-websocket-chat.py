@@ -381,19 +381,16 @@ class OpenClawWebSocketClient:
         
         # 收集流式输出
         full_content: List[str] = []
-        last_text = ""
         
         async def handle_stream(params: Dict):
-            nonlocal last_text
             data = params.get("data", {})
             if not data:
                 return
             
-            text = data.get("text", "") or data.get("delta", "")
-            if text and text != last_text:
-                print(text, end="", flush=True)
-                full_content.append(text)
-                last_text = text
+            delta = data.get("delta", "")
+            if delta:
+                print(delta, end="", flush=True)
+                full_content.append(delta)
             
             if data.get("phase") == "end":
                 print()
