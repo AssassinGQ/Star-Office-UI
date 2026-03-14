@@ -390,7 +390,6 @@ class OpenClawWebSocketClient:
                 return
             
             text = data.get("text", "") or data.get("delta", "")
-            print(f"[DEBUG] agent event: text='{text[:50]}...', last='{last_text[:30]}...', phase={data.get('phase')}")
             if text and text != last_text:
                 print(text, end="", flush=True)
                 full_content.append(text)
