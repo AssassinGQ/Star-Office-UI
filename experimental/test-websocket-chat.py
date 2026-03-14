@@ -389,21 +389,24 @@ class OpenClawWebSocketClient:
                 return
             
             delta = data.get("delta", "")
-            print(f"[DEBUG] agent delta: '{delta[:30]}...'")
             if delta:
                 print(delta, end="", flush=True)
                 full_content.append(delta)
-            
-            if data.get("phase") == "end":
-                response_done.set()
-                print()
         
         async def handle_chat_event(params: Dict):
             nonlocal full_content
-            print(f"[DEBUG] chat event: {params}")
             state = params.get("state", "")
+            msg = params.get("message", {})
+            content = msg.get("content", [])
+            for c in content:
+                text = c.get("text", "")
+                if text:
+                    print(text, end="", flush=True)
+                    full_content.append(text)
+            
             if state == "final":
                 response_done.set()
+                print()
         
         self.event_handlers["agent"] = handle_agent_event
         self.event_handlers["chat"] = handle_chat_event
