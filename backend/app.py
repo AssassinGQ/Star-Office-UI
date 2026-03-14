@@ -2323,7 +2323,7 @@ import base64
 import os
 
 # 前端 WebSocket 端点
-FRONTEND_WS_PORT = 18886
+FRONTEND_WS_PORT = int(os.environ.get('FRONTEND_WS_PORT', 28886))
 
 # 设备密钥文件
 DEVICE_IDENTITY_FILE = os.path.expanduser("~/.openclaw/python-client-identity.json")
