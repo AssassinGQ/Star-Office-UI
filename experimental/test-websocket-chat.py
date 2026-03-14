@@ -376,13 +376,14 @@ class OpenClawWebSocketClient:
             }
         }
         
-        print(f"\n👤 You: {message}")
         print("🤖 Assistant: ", end="", flush=True)
         
         # 收集流式输出
         full_content: List[str] = []
+        response_done = asyncio.Event()
         
         async def handle_stream(params: Dict):
+            nonlocal full_content
             data = params.get("data", {})
             if not data:
                 return
@@ -393,6 +394,7 @@ class OpenClawWebSocketClient:
                 full_content.append(delta)
             
             if data.get("phase") == "end":
+                response_done.set()
                 print()
         
         self.event_handlers["agent"] = handle_stream
@@ -400,8 +402,11 @@ class OpenClawWebSocketClient:
         try:
             await self.websocket.send(json.dumps(chat_msg))
             
-            # 等待响应（简化处理）
-            await asyncio.sleep(5.0)
+            # 等待响应完成，最多等待30秒
+            try:
+                await asyncio.wait_for(response_done.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                print(" (timeout)", end="")
             
             return "".join(full_content)
         except Exception as e:
@@ -524,9 +529,9 @@ async def main():
         
         # 测试模式：发送一条消息后自动退出
         if args.test:
-            print(f"\n🧪 测试模式：发送 '{args.test}'")
+            print(f"\n🧪 测试模式")
+            print(f"👤 You: {args.test}")
             await client.chat(args.test)
-            await asyncio.sleep(2)  # 等待响应
             print("\n👋 测试完成")
         else:
             while True:
